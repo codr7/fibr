@@ -1,6 +1,9 @@
 * implement push op in eval
+** add val *push/peek/pop(vm)
 * add dump_stack
+** call from main
 * add repl fn
+** alisp
 * fibrec
 * fibtail
 * readme

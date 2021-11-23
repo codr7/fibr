@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <string.h>
 
+bool DEBUG = true;
+
 struct type;
 
 typedef int32_t int_t;
@@ -151,11 +153,11 @@ struct op {
   };
 };
 
-void dump_op(struct op *op, FILE *out) {
-  switch (op->code) {
+void op_dump(struct op *self, FILE *out) {
+  switch (self->code) {
   case OP_PUSH:
     fputs("PUSH ", out);
-    val_dump(&op->as_push.val, out);
+    val_dump(&self->as_push.val, out);
     break;
   case OP_STOP:
     fputs("STOP", out);
@@ -222,8 +224,8 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   return self;
 }
 
-#define DISPATCH(next_op)			\
-  printf("%d\n", (next_op)->code);		\
+#define DISPATCH(next_op)					\
+  if (DEBUG) { op_dump(next_op, stdout); fputc('\n', stdout); }	\
   goto *dispatch[(op = next_op)->code]
 
 void eval(struct vm *vm, struct op *op) {
