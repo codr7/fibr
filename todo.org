@@ -1,5 +1,12 @@
+* add readers
+** add int reader
+** add id reader
 * finish repl
 ** alisp
+* add macros
+** add macro type
+** add debug macro
+*** toggle vm->debug
 * fibrec
 * fibtail
 * readme

@@ -166,11 +166,22 @@ void op_dump(struct op *self, FILE *out) {
 const reg_t MAX_REG_COUNT = 64;
 const uint8_t MAX_STACK_SIZE = 64;
 
+struct reg {
+  struct val val;
+  bool set;
+};
+  
 struct state {
-  struct val regs[MAX_REG_COUNT];
+  struct reg regs[MAX_REG_COUNT];
   struct val stack[MAX_STACK_SIZE];
   uint8_t stack_size;
 };
+
+struct state *state_init(struct state *self) {
+  memset(self->regs, 0, sizeof(self->regs));
+  self->stack_size = 0;
+  return self;
+}
 
 const uint8_t MAX_SCOPE_COUNT = 8;
 const uint16_t MAX_OP_COUNT = 1024;
@@ -204,7 +215,7 @@ struct vm *vm_init(struct vm *self) {
 
 struct state *push_state(struct vm *vm) {
   assert(vm->state_count < MAX_STATE_COUNT);
-  return vm->states+vm->state_count++;
+  return state_init(vm->states+vm->state_count++);
 }
 			 
 struct state *state(struct vm *vm) {
