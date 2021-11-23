@@ -1,0 +1,9 @@
+* implement push op in eval
+* add dump_stack
+* add repl fn
+* fibrec
+* fibtail
+* readme
+* track forms in vm pool
+** add ls
+** add alloc/free_form()
