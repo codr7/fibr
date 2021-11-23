@@ -131,12 +131,20 @@ struct form *form_init(struct form *self, struct pos pos) {
   return self;
 }
 
-struct push_op {
+struct op_load {
+  reg_t reg;
+};
+
+struct op_push {
   struct val val;
 };
 
+struct op_store {
+  reg_t reg;
+};
+
 enum op_code {
-  OP_PUSH,
+  OP_LOAD, OP_PUSH, OP_STORE,
   //---STOP---
   OP_STOP};
 
@@ -145,16 +153,25 @@ struct op {
   struct form *form;
   
   union {
-    struct push_op as_push;
+    struct op_load as_load;
+    struct op_push as_push;
+    struct op_store as_store;
   };
 };
 
 void op_dump(struct op *self, FILE *out) {
   switch (self->code) {
+  case OP_LOAD:
+    fprintf(out, "LOAD %" PRIu8, self->as_load.reg);
+    break;
   case OP_PUSH:
     fputs("PUSH ", out);
     val_dump(&self->as_push.val, out);
     break;
+  case OP_STORE:
+    fprintf(out, "STORE %" PRIu8, self->as_store.reg);
+    break;
+  //---STOP---
   case OP_STOP:
     fputs("STOP", out);
     break;
@@ -164,12 +181,8 @@ void op_dump(struct op *self, FILE *out) {
 const reg_t MAX_REG_COUNT = 64;
 const uint8_t MAX_STACK_SIZE = 64;
 
-struct reg {
-  struct val val;
-};
-  
 struct state {
-  struct reg regs[MAX_REG_COUNT];
+  struct val regs[MAX_REG_COUNT];
   struct val stack[MAX_STACK_SIZE];
   uint8_t stack_size;
 };
@@ -233,6 +246,11 @@ struct op *peek_op(struct vm *vm) {
   return vm->ops+vm->op_count;
 }
 
+struct val *reg(struct vm *vm, reg_t reg) {
+  assert(reg < MAX_REG_COUNT);
+  return state(vm)->regs+reg;
+}
+
 struct val *push(struct vm *vm) {
   struct state *s = state(vm);
   return s->stack+s->stack_size++;
@@ -274,17 +292,27 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
 
 void eval(struct vm *vm, struct op *op) {
   static const void* dispatch[] = {
-    &&PUSH,
+    &&LOAD, &&PUSH, &&STORE,
     //---STOP---
     &&STOP};
   
   DISPATCH(op);
+
+ LOAD: {
+    *reg(vm, op->as_load.reg) = *pop(vm);
+    DISPATCH(op+1);
+  }
   
  PUSH: {
     *push(vm) = op->as_push.val;
     DISPATCH(op+1);
   }
 
+ STORE: {
+    *push(vm) = *reg(vm, op->as_store.reg);
+    DISPATCH(op+1);    
+  }
+  
  STOP: {}
 }
 

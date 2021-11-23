@@ -1,5 +1,3 @@
-* add load/store(vm, reg) fns
-** add load/store ops
 * add readers
 ** ampl/alisp
 ** malloc forms
