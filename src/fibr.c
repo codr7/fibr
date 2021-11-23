@@ -172,15 +172,11 @@ struct state {
   uint8_t stack_size;
 };
 
-const uint8_t MAX_TYPE_COUNT = 64;
 const uint8_t MAX_SCOPE_COUNT = 8;
 const uint16_t MAX_OP_COUNT = 1024;
 const uint8_t MAX_STATE_COUNT = 64;
 
 struct vm {  
-  struct type types[MAX_TYPE_COUNT];
-  uint8_t type_count;
-
   struct scope scopes[MAX_SCOPE_COUNT];
   uint8_t scope_count;
 
@@ -194,7 +190,6 @@ struct vm {
 };
 
 struct vm *vm_init(struct vm *self) {
-  self->type_count = 0;
   self->scope_count = 0;
 
   for (struct scope *s = self->scopes, *ps = NULL; s < self->scopes+MAX_SCOPE_COUNT; ps = s, s++) {
@@ -213,11 +208,6 @@ struct op *emit(struct vm *self, enum op_code code, struct form *form) {
   op->code = code;
   op->form = form;
   return op;
-}
-
-struct type *new_type(struct vm *vm, const char *name) {
-  assert(vm->type_count < MAX_TYPE_COUNT);
-  return type_init(vm->types + vm->type_count++, name);
 }
 
 struct scope *scope_init(struct scope *self, struct vm *vm) {
@@ -255,10 +245,11 @@ bool int_is_true(struct val *val) {
 int main () {
   struct vm vm;
   vm_init(&vm);
-  struct type *int_type = new_type(&vm, "Int");
-  int_type->methods.dump = int_dump;
-  int_type->methods.is_true = int_is_true;
-  val_init(&emit(&vm, OP_PUSH, NULL)->as_push.val, int_type)->as_int = 42;
+  struct type int_type;
+  type_init(&int_type, "Int");
+  int_type.methods.dump = int_dump;
+  int_type.methods.is_true = int_is_true;
+  val_init(&emit(&vm, OP_PUSH, NULL)->as_push.val, &int_type)->as_int = 42;
   emit(&vm, OP_STOP, NULL);
   eval(&vm, vm.ops);
   return 0;
