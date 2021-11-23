@@ -8,7 +8,7 @@
 struct type;
 
 typedef int32_t int_t;
-typedef uint16_t reg_t;
+typedef uint8_t reg_t;
 
 struct val {
   struct type *type;
@@ -57,11 +57,11 @@ struct env_item {
   bool set;
 };
 
-#define MAX_ENV_SIZE 64
+const uint8_t MAX_ENV_SIZE = 64;
 
 struct env {
   struct env_item items[MAX_ENV_SIZE];
-  uint16_t item_count;
+  uint8_t item_count;
 };
 
 struct env *env_init(struct env *self) {
@@ -70,8 +70,8 @@ struct env *env_init(struct env *self) {
   return self;
 }
 
-uint16_t hash(const char *name) {
-  uint16_t h = 0;
+uint8_t hash(const char *name) {
+  uint8_t h = 0;
   for (const char *c = name; *c; h += *c, c++);
   return h % MAX_ENV_SIZE;
 }
@@ -164,31 +164,31 @@ void dump_op(struct op *op, FILE *out) {
 }
 
 const reg_t MAX_REG_COUNT = 64;
-const uint16_t MAX_STACK_SIZE = 64;
+const uint8_t MAX_STACK_SIZE = 64;
 
 struct state {
   struct val regs[MAX_REG_COUNT];
   struct val stack[MAX_STACK_SIZE];
-  uint16_t stack_size;
+  uint8_t stack_size;
 };
 
-const uint16_t MAX_TYPE_COUNT = 64;
-const uint16_t MAX_SCOPE_COUNT = 8;
+const uint8_t MAX_TYPE_COUNT = 64;
+const uint8_t MAX_SCOPE_COUNT = 8;
 const uint16_t MAX_OP_COUNT = 1024;
-const uint16_t MAX_STATE_COUNT = 64;
+const uint8_t MAX_STATE_COUNT = 64;
 
 struct vm {  
   struct type types[MAX_TYPE_COUNT];
-  uint16_t type_count;
+  uint8_t type_count;
 
   struct scope scopes[MAX_SCOPE_COUNT];
-  uint16_t scope_count;
+  uint8_t scope_count;
 
   struct op ops[MAX_OP_COUNT];
   uint16_t op_count;
 
   struct state states[MAX_STATE_COUNT];
-  uint16_t state_count;
+  uint8_t state_count;
 };
 
 struct vm *vm_init(struct vm *self) {
