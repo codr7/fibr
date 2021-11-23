@@ -5,8 +5,6 @@
 #include <stdint.h>
 #include <string.h>
 
-bool DEBUG = true;
-
 struct type;
 
 typedef int32_t int_t;
@@ -191,6 +189,8 @@ struct vm {
 
   struct state states[MAX_STATE_COUNT];
   uint8_t state_count;
+
+  bool debug;
 };
 
 struct vm *vm_init(struct vm *self) {
@@ -203,6 +203,7 @@ struct vm *vm_init(struct vm *self) {
   
   self->op_count = 0;
   self->state_count = 0;
+  self->debug = true;
   return self;
 }
 
@@ -224,8 +225,8 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   return self;
 }
 
-#define DISPATCH(next_op)					\
-  if (DEBUG) { op_dump(next_op, stdout); fputc('\n', stdout); }	\
+#define DISPATCH(next_op)						\
+  if (vm->debug) { op_dump(next_op, stdout); fputc('\n', stdout); }	\
   goto *dispatch[(op = next_op)->code]
 
 void eval(struct vm *vm, struct op *op) {
