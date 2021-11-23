@@ -1,12 +1,10 @@
-* implement push op in eval
-** add val *push/peek/pop(vm)
-* add dump_stack
-** call from main
-* add repl fn
+* finish repl
 ** alisp
 * fibrec
 * fibtail
 * readme
 * track forms in vm pool
 ** add ls
+** add ref_count
 ** add alloc/free_form()
+* add test op

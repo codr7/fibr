@@ -50,7 +50,6 @@ void val_dump(struct val *self, FILE *out) {
   self->type->methods.dump(self, out);
 }
 
-
 struct env_item {
   char name[MAX_NAME_LENGTH];
   struct val val;
@@ -138,7 +137,8 @@ struct push_op {
   struct val val;
 };
 
-enum op_code {OP_PUSH,
+enum op_code {
+  OP_PUSH,
   //---STOP---
   OP_STOP};
 
@@ -202,15 +202,55 @@ struct vm *vm_init(struct vm *self) {
   return self;
 }
 
-struct op *emit(struct vm *self, enum op_code code, struct form *form) {
-  assert(self->op_count < MAX_OP_COUNT);
-  struct op *op = self->ops + self->op_count++;
+struct state *push_state(struct vm *vm) {
+  assert(vm->state_count < MAX_STATE_COUNT);
+  return vm->states+vm->state_count++;
+}
+			 
+struct state *state(struct vm *vm) {
+  assert(vm->state_count);
+  return vm->states+vm->state_count-1;
+}
+
+struct op *emit(struct vm *vm, enum op_code code, struct form *form) {
+  assert(vm->op_count < MAX_OP_COUNT);
+  struct op *op = vm->ops + vm->op_count++;
   op->code = code;
   op->form = form;
   return op;
 }
 
+struct val *push(struct vm *vm) {
+  struct state *s = state(vm);
+  return s->stack+s->stack_size++;
+}
+
+struct val *peek(struct vm *vm) {
+  struct state *s = state(vm);
+  assert(s->stack_size);
+  return s->stack+s->stack_size-1;
+}
+
+struct val *pop(struct vm *vm) {
+  struct state *s = state(vm);
+  assert(s->stack_size);
+  return s->stack + --s->stack_size;
+}
+
+void dump_stack(struct vm *vm, FILE *out) {
+  fputc('[', out);
+  struct state *s = state(vm);
+  
+  for (struct val *v = s->stack; v < s->stack + s->stack_size; v++) {
+    if (v > s->stack) { fputc(' ', out); }
+    val_dump(v, out);
+  }
+
+  fputc(']', out);
+}
+
 struct scope *scope_init(struct scope *self, struct vm *vm) {
+  env_init(&self->bindings);
   self->reg_count = self->parent_scope ? self->parent_scope->reg_count : 0;
   return self;
 }
@@ -228,6 +268,7 @@ void eval(struct vm *vm, struct op *op) {
   DISPATCH(op);
   
  PUSH: {
+    *push(vm) = op->as_push.val;
     DISPATCH(op+1);
   }
 
@@ -251,6 +292,9 @@ int main () {
   int_type.methods.is_true = int_is_true;
   val_init(&emit(&vm, OP_PUSH, NULL)->as_push.val, &int_type)->as_int = 42;
   emit(&vm, OP_STOP, NULL);
+  push_state(&vm);
   eval(&vm, vm.ops);
+  dump_stack(&vm, stdout);
+  fputc('\n', stdout);
   return 0;
 }
