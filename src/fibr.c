@@ -53,7 +53,6 @@ void val_dump(struct val *self, FILE *out) {
 struct env_item {
   char name[MAX_NAME_LENGTH];
   struct val val;
-  bool set;
 };
 
 const uint8_t MAX_ENV_SIZE = 64;
@@ -79,7 +78,7 @@ struct val *env_set(struct env *self, const char *name) {
   struct env_item *it = NULL;
   
   for (it = self->items+hash(name);
-       it < self->items+MAX_ENV_SIZE && it->set;
+       it < self->items+MAX_ENV_SIZE && it->val.type;
        it++) {
     if (strcmp(it->name, name) == 0) {
       return NULL;
@@ -87,14 +86,13 @@ struct val *env_set(struct env *self, const char *name) {
   }
 
   assert(it < self->items+MAX_ENV_SIZE);
-  it->set = true;
   strcpy(it->name, name);
   return &it->val;
 }
 
 struct val *env_get(struct env *self, const char *name) {
   for (struct env_item *it = self->items+hash(name);
-       it < self->items+MAX_ENV_SIZE && it->set;
+       it < self->items+MAX_ENV_SIZE && it->val.type;
        it++) {
     if (strcmp(it->name, name) == 0) {
       return &it->val;
@@ -168,7 +166,6 @@ const uint8_t MAX_STACK_SIZE = 64;
 
 struct reg {
   struct val val;
-  bool set;
 };
   
 struct state {
@@ -229,6 +226,11 @@ struct op *emit(struct vm *vm, enum op_code code, struct form *form) {
   op->code = code;
   op->form = form;
   return op;
+}
+
+struct op *peek_op(struct vm *vm) {
+  assert(vm->op_count < MAX_OP_COUNT);
+  return vm->ops+vm->op_count;
 }
 
 struct val *push(struct vm *vm) {

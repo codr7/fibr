@@ -1,4 +1,8 @@
+* add load/store(vm, reg) fns
+** add load/store ops
 * add readers
+** ampl/alisp
+** malloc forms
 ** add int reader
 ** add id reader
 * finish repl
@@ -13,5 +17,5 @@
 * track forms in vm pool
 ** add ls
 ** add ref_count
-** add alloc/free_form()
+** add alloc/free_form(vm,)
 * add test op
