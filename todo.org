@@ -2,6 +2,8 @@
 ** add macro type
 ** add debug macro
 *** toggle vm->debug
+* add form_emit(form self, in, vm)
+** add type.methods.emit
 * finish read_int
 ** alisp
 * finish read_group
