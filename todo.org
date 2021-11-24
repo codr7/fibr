@@ -1,8 +1,9 @@
 * add readers
 ** ampl/alisp
-** malloc forms
-** add int reader
+** take ls out arg
+*** forward to new_form
 ** add id reader
+** add int reader
 * finish repl
 ** alisp
 * add macros

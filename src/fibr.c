@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 struct type;
@@ -122,13 +123,87 @@ struct pos *pos_init(struct pos *self, const char *source, int line, int column)
   return self;
 }
 
-struct form {
-  struct pos pos;
+#define _ls_do(ls, i, _next)				\
+  for (struct ls *i = (ls)->next, *_next = i->next;	\
+       i != (ls);					\
+       i = _next, _next = i->next)
+
+#define ls_do(ls, i)				\
+  _ls_do(ls, i, a_unique(next))
+
+struct ls {
+  struct ls *prev, *next;
 };
 
-struct form *form_init(struct form *self, struct pos pos) {
-  self->pos = pos;
+void ls_init(struct ls *self) { self->prev = self->next = self; }
+
+bool ls_null(const struct ls *self) { return self->prev == self && self->next == self; }
+
+void ls_push(struct ls *self, struct ls *it) {
+  it->prev = self->prev;
+  self->prev->next = it;
+  it->next = self;
+  self->prev = it;
+}
+
+struct ls *ls_pop(struct ls *self) {
+  self->prev->next = self->next;
+  self->next->prev = self->prev;
   return self;
+}
+
+uint32_t ls_count(struct ls *self) {
+  uint32_t n = 0;
+  for (struct ls *i = self->next; i != self; i = i->next, n++);
+  return n;
+}
+
+struct form_id {
+  char name[MAX_NAME_LENGTH];
+};
+
+struct form_literal {
+  struct val val;
+};
+
+typedef uint16_t nrefs_t;
+
+enum form_type {FORM_ID, FORM_LITERAL};
+
+struct form {
+  struct ls ls;
+  enum form_type type;
+  struct pos pos;
+  nrefs_t nrefs;
+
+  union {
+    struct form_id as_id;
+    struct form_literal as_literal;
+  };
+};
+
+struct form *form_init(struct form *self, enum form_type type, struct pos pos, struct ls *out) {
+  self->type = type;
+  self->pos = pos;
+  self->nrefs = 1;
+  if (out) { ls_push(out, &self->ls); }
+  return self;
+}
+
+struct form *new_form(enum form_type type, struct pos pos, struct ls *out) {
+  return form_init(malloc(sizeof(struct form)), type, pos, out);
+}
+
+struct form *form_ref(struct form *self) {
+  self->nrefs++;
+  return self;
+}
+
+bool form_deref(struct form *self) {
+  assert(self->nrefs);
+  if (--self->nrefs) { return false; }
+  free(self);
+  return true;
 }
 
 struct op_load {
@@ -171,7 +246,7 @@ void op_dump(struct op *self, FILE *out) {
   case OP_STORE:
     fprintf(out, "STORE %" PRIu8, self->as_store.reg);
     break;
-  //---STOP---
+    //---STOP---
   case OP_STOP:
     fputs("STOP", out);
     break;
