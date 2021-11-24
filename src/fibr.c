@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <ctype.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -139,14 +140,14 @@ void ls_init(struct ls *self) { self->prev = self->next = self; }
 
 bool ls_null(const struct ls *self) { return self->prev == self && self->next == self; }
 
-void ls_push(struct ls *self, struct ls *it) {
+void ls_insert(struct ls *self, struct ls *it) {
   it->prev = self->prev;
   self->prev->next = it;
   it->next = self;
   self->prev = it;
 }
 
-struct ls *ls_pop(struct ls *self) {
+struct ls *ls_delete(struct ls *self) {
   self->prev->next = self->next;
   self->next->prev = self->prev;
   return self;
@@ -186,7 +187,7 @@ struct form *form_init(struct form *self, enum form_type type, struct pos pos, s
   self->type = type;
   self->pos = pos;
   self->nrefs = 1;
-  if (out) { ls_push(out, &self->ls); }
+  if (out) { ls_insert(out, &self->ls); }
   return self;
 }
 
@@ -298,6 +299,13 @@ struct vm *vm_init(struct vm *self) {
   return self;
 }
 
+struct scope *scope_init(struct scope *self, struct vm *vm);
+
+struct scope *push_scope(struct vm *vm) {
+  assert(vm->scope_count < MAX_SCOPE_COUNT);
+  return scope_init(vm->scopes+vm->scope_count++, vm);
+}
+
 struct state *push_state(struct vm *vm) {
   assert(vm->state_count < MAX_STATE_COUNT);
   return state_init(vm->states+vm->state_count++);
@@ -391,6 +399,87 @@ void eval(struct vm *vm, struct op *op) {
  STOP: {}
 }
 
+typedef struct form *(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+
+struct form *read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+struct form *read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+struct form *read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+struct form *read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+
+struct form *read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+  static const int COUNT = 4;
+  static const reader_t readers[COUNT] = {read_ws, read_int, read_group, read_id};
+
+  for (int i=0; i < COUNT; i++) {
+    struct form *f = readers[i](vm, pos, in, out);
+    if (f) { return f; }
+  }
+
+  return NULL;
+}
+
+struct form *read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+  return NULL;
+}
+
+struct form *read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+  struct pos fpos = *pos;
+  char name[MAX_NAME_LENGTH], *p = name, c = 0;
+
+  while ((c = fgetc(in))) {
+    assert(p < name + MAX_NAME_LENGTH);
+    
+    if (isspace(c) || c == '(' || c == ')') {
+      ungetc(c, in);
+      break;
+    }
+
+    *p++ = c;
+    pos->column++;
+  }
+
+  if (p == name) { return NULL; }
+  
+  *p = 0;
+  struct form *f = new_form(FORM_ID, fpos, out);
+  strcpy(f->as_id.name, name);
+  return f;
+}
+
+struct form *read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+  return NULL;
+}
+
+struct form *read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+  char c = 0, pc = 0;
+  
+  while ((c = fgetc(in))) {
+    switch (c) {
+    case ' ':
+    case '\t':
+      pos->column++;
+      break;
+    case '\n':
+      pos->line++;
+      pos->column = 0;
+
+      if (pc == '\n') {
+	ungetc(c, in);
+	return NULL;
+      }
+
+      break;
+    default:
+      ungetc(c, in);
+      return NULL;
+    }
+
+    pc = c;
+  }
+  
+  return NULL;
+}
+
 void int_dump(struct val *val, FILE *out) {
   fprintf(out, "%" PRId32, val->as_int);
 }
@@ -399,17 +488,33 @@ bool int_is_true(struct val *val) {
   return val->as_int;
 }
 
+const int VERSION = 1;
+
 int main () {
+  printf("fibr %d\n\n", VERSION);
+  
   struct vm vm;
   vm_init(&vm);
   struct type int_type;
   type_init(&int_type, "Int");
   int_type.methods.dump = int_dump;
   int_type.methods.is_true = int_is_true;
-  val_init(&emit(&vm, OP_PUSH, NULL)->as_push.val, &int_type)->as_int = 42;
-  emit(&vm, OP_STOP, NULL);
+
+  push_scope(&vm);
   push_state(&vm);
-  eval(&vm, vm.ops);
+
+  struct pos pos;
+  pos_init(&pos, "repl", 0, 0);
+  
+  struct ls forms;
+  ls_init(&forms);
+  while (read_form(&vm, &pos, stdin, &forms));
+
+  struct op *start = peek_op(&vm);
+  
+  emit(&vm, OP_STOP, NULL);
+  eval(&vm, start);
+
   dump_stack(&vm, stdout);
   fputc('\n', stdout);
   return 0;
