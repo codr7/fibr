@@ -1,21 +1,17 @@
-* add macros
-** add macro type
-** add debug macro
-*** toggle vm->debug
-* add form_emit(form self, in, vm)
-** add type.methods.emit
+* finish macros
+** add form_emit(form self, in, vm)
+** implement macro emit
+** test debug macro
+** commit
 * finish read_int
 ** alisp
 * finish read_group
 ** alisp
-* finish repl
-** alisp
+* add if-macro
 * fibrec
 * fibtail
-* readme
 * track forms in vm pool
 ** add ls
 ** add ref_count
 ** add alloc/free_form(vm,)
 * add test op
-
