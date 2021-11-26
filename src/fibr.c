@@ -3,10 +3,16 @@
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define baseof(p, t, m) ({			\
+      uint8_t *_p = (uint8_t *)(p);		\
+      _p ? ((t *)(_p - offsetof(t, m))) : NULL;	\
+    })
 
 #define _ls_do(ls, i, _next)				\
   for (struct ls *i = (ls)->next, *_next = i->next;	\
@@ -342,7 +348,7 @@ struct vm *vm_init(struct vm *self) {
   self->op_count = 0;
   self->state_count = 0;
   *self->error = 0;
-  self->debug = true;
+  self->debug = false;
   return self;
 }
 
@@ -512,6 +518,16 @@ enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
   return EMIT_ERROR;
 }
 
+enum emit_result emit_forms(struct vm *vm, struct ls *in) {
+  while (!ls_null(in)) {
+    struct form *f = baseof(ls_delete(in->next), struct form, ls);
+    enum emit_result fr = form_emit(f, in, vm);
+    if (fr != EMIT_OK) { return fr; }
+  }
+
+  return EMIT_OK;
+}
+
 typedef enum emit_result (*macro_body_t)(struct macro *self, struct form *form, struct ls *in, struct vm *vm);
 
 struct macro {
@@ -528,30 +544,38 @@ struct macro *macro_init(struct macro *self, const char *name, uint8_t nargs, ma
   return self;
 }
 
-typedef struct form *(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result {READ_OK, READ_NULL, READ_ERROR};
+  
+typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
-struct form *read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-struct form *read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-struct form *read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-struct form *read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
-struct form *read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+enum read_result read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   static const int COUNT = 4;
   static const reader_t readers[COUNT] = {read_ws, read_int, read_group, read_id};
 
   for (int i=0; i < COUNT; i++) {
-    struct form *f = readers[i](vm, pos, in, out);
-    if (f) { return f; }
+    switch (readers[i](vm, pos, in, out)) {
+    case READ_OK:
+      return READ_OK;
+    case READ_NULL:
+      break;
+    case READ_ERROR:
+      return READ_ERROR;
+    }
   }
 
-  return NULL;
+  return READ_NULL;
 }
 
-struct form *read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
-  return NULL;
+enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+  return READ_NULL;
 }
 
-struct form *read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   struct pos fpos = *pos;
   char name[MAX_NAME_LENGTH], *p = name, c = 0;
 
@@ -567,19 +591,19 @@ struct form *read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
     pos->column++;
   }
 
-  if (p == name) { return NULL; }
+  if (p == name) { return READ_NULL; }
   
   *p = 0;
   struct form *f = new_form(FORM_ID, fpos, out);
   strcpy(f->as_id.name, name);
-  return f;
+  return READ_OK;
 }
 
-struct form *read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
-  return NULL;
+enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+  return READ_NULL;
 }
 
-struct form *read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   char c = 0, pc = 0;
   
   while ((c = fgetc(in))) {
@@ -591,7 +615,7 @@ struct form *read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
     case '\n':
       if (pc == '\n') {
 	ungetc(c, in);
-	return NULL;
+	return READ_NULL;
       }
       
       pos->line++;
@@ -599,13 +623,13 @@ struct form *read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
       break;
     default:
       ungetc(c, in);
-      return NULL;
+      return READ_NULL;
     }
 
     pc = c;
   }
   
-  return NULL;
+  return READ_NULL;
 }
 
 
@@ -645,7 +669,7 @@ void meta_dump(struct val *val, FILE *out) {
 
 enum emit_result debug_macro_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   vm->debug = !vm->debug;
-  printf("debug %s", vm->debug ? "on" : "off");
+  printf("debug %s\n", vm->debug ? "on" : "off");
   return EMIT_OK;
 }
 
@@ -680,20 +704,31 @@ int main () {
   struct macro debug_macro;
   macro_init(&debug_macro, "debug", 0, debug_macro_body);
   bind_init(&vm, "debug", &macro_type)->as_macro = &debug_macro;
-    
-  struct pos pos;
-  pos_init(&pos, "repl", 0, 0);
-  
-  struct ls forms;
-  ls_init(&forms);
-  while (read_form(&vm, &pos, stdin, &forms));
 
-  struct op *start = peek_op(&vm);
+  while (!feof(stdin)) {
+    struct pos pos;
+    pos_init(&pos, "repl", 0, 0);
   
-  emit(&vm, OP_STOP, NULL);
-  eval(&vm, start);
+    struct ls forms;
+    ls_init(&forms);
+    while (read_form(&vm, &pos, stdin, &forms));
+    struct op *start = peek_op(&vm);
 
-  dump_stack(&vm, stdout);
-  fputc('\n', stdout);
+    if (emit_forms(&vm, &forms) != EMIT_OK) {
+      printf("%s\n", vm.error);
+      continue;
+    }
+  
+    emit(&vm, OP_STOP, NULL);
+
+    if (eval(&vm, start) != EVAL_OK) {
+      printf("%s\n", vm.error);
+      continue;
+    }
+
+    dump_stack(&vm, stdout);
+    fputc('\n', stdout);
+  }
+  
   return 0;
 }

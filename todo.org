@@ -1,11 +1,3 @@
-* finish macros
-** add emit_result emit_forms(vm, in)
-*** keep emitting first until _null
-*** call from repl
-** test debug macro
-** commit
-* add read_result like emit_result
-** change return type of readers
 * finish read_int
 ** alisp
 * finish read_group
