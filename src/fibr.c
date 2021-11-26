@@ -71,7 +71,7 @@ struct form;
 
 const uint8_t MAX_NAME_LENGTH = 64;
 
-enum emit_result {EMIT_OK}; 
+enum emit_result {EMIT_OK, EMIT_ERROR}; 
 
 struct type {
   char name[MAX_NAME_LENGTH];
@@ -107,6 +107,11 @@ struct type *type_init(struct type *self, const char *name) {
 void val_dump(struct val *self, FILE *out) {
   assert(self->type->methods.dump);
   self->type->methods.dump(self, out);
+}
+
+enum emit_result val_emit(struct val *self, struct form *form, struct ls *in, struct vm *vm) {
+  assert(self->type->methods.emit);
+  return self->type->methods.emit(self, form, in, vm);
 }
 
 bool val_is_true(struct val *self) {
@@ -348,7 +353,10 @@ struct vm *vm_init(struct vm *self) {
 }
 
 void verror(struct vm *vm, struct pos pos, const char *fmt, va_list args) {
-  int n = snprintf(vm->error, MAX_ERROR_LENGTH, "Error in %s, line %" PRIu16 " column %" PRIu16 ": ", pos.source, pos.line, pos.column);
+  int n = snprintf(vm->error, MAX_ERROR_LENGTH,
+		   "Error in %s, line %" PRIu16 " column %" PRIu16 ": ",
+		   pos.source, pos.line, pos.column);
+  
   assert(vsnprintf(vm->error+n, MAX_ERROR_LENGTH-n, fmt, args) > 0);
 }
 
@@ -375,6 +383,10 @@ struct val *bind(struct vm *vm, const char *name) {
   struct scope *scope = peek_scope(vm);
   if (env_get(&scope->bindings, name)) { return NULL; }
   return env_set(&scope->bindings, name);
+}
+
+struct val *bind_init(struct vm *vm, const char *name, struct type *type) {
+  return val_init(bind(vm, name), type);
 }
 
 struct val *find(struct vm *vm, const char *name) {
@@ -449,7 +461,7 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   if (vm->debug) { op_dump(next_op, stdout); fputc('\n', stdout); }	\
   goto *dispatch[(op = next_op)->code]
 
-enum eval_result {EVAL_OK};
+enum eval_result {EVAL_OK, EVAL_ERROR};
   
 enum eval_result eval(struct vm *vm, struct op *op) {
   static const void* dispatch[] = {
@@ -484,7 +496,29 @@ enum emit_result default_emit(struct val *val, struct form *form, struct ls *in,
   return EMIT_OK;
 }
 
-typedef void (*macro_body_t)(struct form *self, struct ls *in, struct vm *vm);
+enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
+  switch (self->type) {
+  case FORM_ID: {
+    const char *name = self->as_id.name;
+    struct val *v = find(vm, name);
+
+    if (!v) {
+      error(vm, self->pos, "Unknown id: %s", name);
+      return EMIT_ERROR;
+    }
+    
+    return val_emit(v, self, in, vm);
+  }
+    
+  case FORM_LITERAL:
+    emit(vm, OP_PUSH, self)->as_push.val = self->as_literal.val;
+    return EMIT_OK;
+  }
+
+  return EMIT_ERROR;
+}
+
+typedef enum emit_result (*macro_body_t)(struct macro *self, struct form *form, struct ls *in, struct vm *vm);
 
 struct macro {
   char name[MAX_NAME_LENGTH];
@@ -499,7 +533,7 @@ struct macro *macro_init(struct macro *self, const char *name, uint8_t nargs, ma
   self->body = body;
   return self;
 }
-			 
+
 typedef struct form *(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
 struct form *read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
@@ -593,6 +627,20 @@ void macro_dump(struct val *val, FILE *out) {
   fprintf(out, "Macro(%s)", val->as_macro->name);
 }
 
+enum emit_result macro_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
+  struct macro *self = val->as_macro;
+  struct ls *a = in->next;
+
+  for (uint8_t i = 0; i < self->nargs; i++, a = a->next) {
+    if (a == in) {
+      error(vm, form->pos, "Missing macro arguments");
+      return EMIT_ERROR;
+    }
+  }
+
+  return self->body(self, form, in, vm);
+}
+
 struct val *macro_literal(struct val *val) {
   return NULL;
 }
@@ -601,9 +649,10 @@ void meta_dump(struct val *val, FILE *out) {
   fputs(val->as_meta->name, out);
 }
 
-void debug_macro_body(struct form *self, struct ls *in, struct vm *vm) {
+enum emit_result debug_macro_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   vm->debug = !vm->debug;
   printf("debug %s", vm->debug ? "on" : "off");
+  return EMIT_OK;
 }
 
 const int VERSION = 1;
@@ -619,23 +668,24 @@ int main () {
   struct type meta_type;
   type_init(&meta_type, "Meta");
   meta_type.methods.dump = meta_dump;
-  val_init(bind(&vm, "Meta"), &meta_type)->as_meta = &meta_type;
+  bind_init(&vm, "Meta", &meta_type)->as_meta = &meta_type;
 
   struct type macro_type;
   type_init(&macro_type, "Macro");
   macro_type.methods.dump = macro_dump;
+  macro_type.methods.emit = macro_emit;
   macro_type.methods.literal = macro_literal;
-  val_init(bind(&vm, "Macro"), &meta_type)->as_meta = &macro_type;
+  bind_init(&vm, "Macro", &meta_type)->as_meta = &macro_type;
   
   struct type int_type;
   type_init(&int_type, "Int");
   int_type.methods.dump = int_dump;
   int_type.methods.is_true = int_is_true;
-  val_init(bind(&vm, "Int"), &meta_type)->as_meta = &int_type;
+  bind_init(&vm, "Int", &meta_type)->as_meta = &int_type;
 
   struct macro debug_macro;
   macro_init(&debug_macro, "debug", 0, debug_macro_body);
-  val_init(bind(&vm, "debug"), &macro_type)->as_macro = &debug_macro;
+  bind_init(&vm, "debug", &macro_type)->as_macro = &debug_macro;
     
   struct pos pos;
   pos_init(&pos, "repl", 0, 0);

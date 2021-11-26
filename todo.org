@@ -1,6 +1,7 @@
 * finish macros
-** add form_emit(form self, in, vm)
-** implement macro emit
+** add emit_forms(vm, in)
+*** keep emitting first until null
+*** call from repl
 ** test debug macro
 ** commit
 * finish read_int
@@ -8,6 +9,7 @@
 * finish read_group
 ** alisp
 * add if-macro
+* add fun
 * fibrec
 * fibtail
 * track forms in vm pool
