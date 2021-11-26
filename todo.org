@@ -3,7 +3,10 @@
 * finish read_group
 ** alisp
 * add if-macro
+** add branch op
 * add fun
+** convert debug
+** push T/F instead of printing
 * fibrec
 * fibtail
 * track forms in vm pool

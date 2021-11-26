@@ -14,13 +14,22 @@
       _p ? ((t *)(_p - offsetof(t, m))) : NULL;	\
     })
 
+#define _CONCAT(x, y)				\
+  x##y
+
+#define CONCAT(x, y)				\
+  _CONCAT(x, y)
+
+#define UNIQUE(x)				\
+  CONCAT(x, __COUNTER__)
+
 #define _ls_do(ls, i, _next)				\
   for (struct ls *i = (ls)->next, *_next = i->next;	\
        i != (ls);					\
        i = _next, _next = i->next)
 
 #define ls_do(ls, i)				\
-  _ls_do(ls, i, a_unique(next))
+  _ls_do(ls, i, UNIQUE(next))
 
 struct ls {
   struct ls *prev, *next;
@@ -667,9 +676,9 @@ void meta_dump(struct val *val, FILE *out) {
   fputs(val->as_meta->name, out);
 }
 
-enum emit_result debug_macro_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_result debug_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   vm->debug = !vm->debug;
-  printf("debug %s\n", vm->debug ? "on" : "off");
+  printf("%s\n", vm->debug ? "T" : "F");
   return EMIT_OK;
 }
 
@@ -702,7 +711,7 @@ int main () {
   bind_init(&vm, "Int", &meta_type)->as_meta = &int_type;
 
   struct macro debug_macro;
-  macro_init(&debug_macro, "debug", 0, debug_macro_body);
+  macro_init(&debug_macro, "debug", 0, debug_body);
   bind_init(&vm, "debug", &macro_type)->as_macro = &debug_macro;
 
   while (!feof(stdin)) {
