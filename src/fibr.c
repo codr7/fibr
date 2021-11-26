@@ -37,12 +37,6 @@ struct ls *ls_delete(struct ls *self) {
   return self;
 }
 
-uint32_t ls_count(struct ls *self) {
-  uint32_t n = 0;
-  for (struct ls *i = self->next; i != self; i = i->next, n++);
-  return n;
-}
-
 struct macro;
 struct type;
 struct vm;
