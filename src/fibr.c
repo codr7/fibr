@@ -729,11 +729,10 @@ int main () {
   struct macro debug_macro;
   macro_init(&debug_macro, "debug", 0, debug_body);
   bind_init(&vm, "debug", &macro_type)->as_macro = &debug_macro;
+  struct pos pos;
+  pos_init(&pos, "repl", 0, 0);
 
   while (!feof(stdin)) {
-    struct pos pos;
-    pos_init(&pos, "repl", 0, 0);
-  
     struct ls forms;
     ls_init(&forms);
 
@@ -754,7 +753,7 @@ int main () {
     }
   
     emit(&vm, OP_STOP, NULL);
-
+    
     if (eval(&vm, start) != EVAL_OK) {
       printf("%s\n", vm.error);
       continue;

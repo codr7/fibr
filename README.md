@@ -11,5 +11,5 @@ foo;bar
 Error in repl, line 0 column 0: Unknown id: foo
 
 ;
-Error in repl, line 0 column 0: Unknown id: bar
+Error in repl, line 0 column 4: Unknown id: bar
 ```
