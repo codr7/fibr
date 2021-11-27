@@ -1,16 +1,14 @@
-* finish read_group
-** alisp
-* add equal macro/op
-** add methods.equal/val_equal
 * add if-macro
 ** add branch op
+* finish read_group
+** alisp
 * add fun
 ** convert debug
 ** push T/F instead of printing
-* extract fibr.h
 ** include in .c
 * fibrec
 * fibtail
 * track forms in vm pool
 ** add alloc/free_form(vm,)
 * add test op
+* add func decls to header

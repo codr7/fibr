@@ -17,7 +17,9 @@
 
 typedef int32_t int_t;
 typedef uint16_t nrefs_t;
-typedef uint8_t reg_t;
+typedef int16_t reg_t;
+
+const uint32_t VERSION = 1;
 
 const uint8_t MAX_ENV_SIZE = 64;
 const uint16_t MAX_ERROR_LENGTH = 1024;
@@ -104,6 +106,7 @@ struct type {
   struct { 
     void (*dump)(struct val *val, FILE *out);
     enum emit_result (*emit)(struct val *val, struct form *form, struct ls *in, struct vm *vm);
+    bool (*equal)(struct val *x, struct val *y);
     bool (*is_true)(struct val *val);
     struct val *(*literal)(struct val *val);
   } methods;
@@ -115,6 +118,10 @@ struct macro {
   char name[MAX_NAME_LENGTH];
   uint8_t nargs;
   macro_body_t body;
+};
+
+struct op_equal {
+  struct val x, y;
 };
 
 struct op_load {
@@ -129,14 +136,8 @@ struct op_store {
   reg_t reg;
 };
 
-struct scope {
-  struct scope *parent_scope;
-  struct env bindings;
-  reg_t reg_count;
-};
-
 enum op_code {
-  OP_LOAD, OP_PUSH, OP_STORE,
+  OP_EQUAL, OP_LOAD, OP_PUSH, OP_STORE,
   //---STOP---
   OP_STOP};
 
@@ -145,10 +146,17 @@ struct op {
   struct form *form;
   
   union {
+    struct op_equal as_equal;
     struct op_load as_load;
     struct op_push as_push;
     struct op_store as_store;
   };
+};
+
+struct scope {
+  struct scope *parent_scope;
+  struct env bindings;
+  reg_t reg_count;
 };
 
 struct state {
@@ -158,7 +166,7 @@ struct state {
 };
 
 struct vm {
-  struct type int_type, meta_type;
+  struct type bool_type, int_type, meta_type;
   
   struct scope scopes[MAX_SCOPE_COUNT];
   uint8_t scope_count;

@@ -48,6 +48,7 @@ struct type *type_init(struct type *self, const char *name) {
   strcpy(self->name, name);
   self->methods.dump = NULL;
   self->methods.emit = default_emit;
+  self->methods.equal = NULL;
   self->methods.is_true = default_is_true;
   self->methods.literal = default_literal;
   return self;
@@ -61,6 +62,11 @@ void val_dump(struct val *self, FILE *out) {
 enum emit_result val_emit(struct val *self, struct form *form, struct ls *in, struct vm *vm) {
   assert(self->type->methods.emit);
   return self->type->methods.emit(self, form, in, vm);
+}
+
+bool val_equal(struct val *self, struct val *other) {
+  assert(self->type->methods.equal);
+  return self->type->methods.equal(self, other);
 }
 
 bool val_is_true(struct val *self) {
@@ -160,17 +166,47 @@ struct val *form_val(struct form *self, struct vm *vm) {
   return NULL;
 }
 
+struct op *op_init(struct op *self, enum op_code code, struct form *form) {
+  self->code = code;
+  self->form = form;
+
+  switch (code) {
+  case OP_EQUAL:
+    self->as_equal.x.type = self->as_equal.y.type = NULL;
+    break;
+  case OP_PUSH:
+    self->as_push.val.type = NULL;
+    break;
+  case OP_LOAD:
+    self->as_load.reg = -1;
+    break;
+  case OP_STORE:
+    self->as_store.reg = -1;
+    break;
+  default:
+    break;
+  }
+
+  return self;
+}
+
 void op_dump(struct op *self, FILE *out) {
   switch (self->code) {
+  case OP_EQUAL:
+    fprintf(out, "EQUAL ");
+    if (self->as_equal.x.type) { val_dump(&self->as_equal.x, out); }
+    if (self->as_equal.y.type) { val_dump(&self->as_equal.y, out); }
+    break;
+
   case OP_LOAD:
-    fprintf(out, "LOAD %" PRIu8, self->as_load.reg);
+    fprintf(out, "LOAD %" PRId16, self->as_load.reg);
     break;
   case OP_PUSH:
     fputs("PUSH ", out);
     val_dump(&self->as_push.val, out);
     break;
   case OP_STORE:
-    fprintf(out, "STORE %" PRIu8, self->as_store.reg);
+    fprintf(out, "STORE %" PRId16, self->as_store.reg);
     break;
     //---STOP---
   case OP_STOP:
@@ -185,8 +221,24 @@ struct state *state_init(struct state *self) {
   return self;
 }
 
+void bool_dump(struct val *val, FILE *out) {
+  fputs(val->as_bool ? "T" : "F", out);
+}
+
+bool bool_equal(struct val *x, struct val *y) {
+  return x->as_bool == y->as_bool;
+}
+
+bool bool_is_true(struct val *val) {
+  return val->as_bool;
+}
+
 void int_dump(struct val *val, FILE *out) {
   fprintf(out, "%" PRId32, val->as_int);
+}
+
+bool int_equal(struct val *x, struct val *y) {
+  return x->as_int == y->as_int;
 }
 
 bool int_is_true(struct val *val) {
@@ -214,8 +266,18 @@ struct vm *vm_init(struct vm *self) {
   self->meta_type.methods.dump = meta_dump;
   bind_init(self, "Meta", &self->meta_type)->as_meta = &self->meta_type;
 
+  type_init(&self->bool_type, "Bool");
+  self->bool_type.methods.dump = bool_dump;
+  self->bool_type.methods.equal = bool_equal;  
+  self->bool_type.methods.is_true = bool_is_true;
+  bind_init(self, "Bool", &self->meta_type)->as_meta = &self->bool_type;
+
+  bind_init(self, "T", &self->bool_type)->as_bool = true;
+  bind_init(self, "F", &self->bool_type)->as_bool = false;
+
   type_init(&self->int_type, "Int");
   self->int_type.methods.dump = int_dump;
+  self->int_type.methods.equal = int_equal;
   self->int_type.methods.is_true = int_is_true;
   bind_init(self, "Int", &self->meta_type)->as_meta = &self->int_type;
 
@@ -276,9 +338,7 @@ struct state *peek_state(struct vm *vm) {
 
 struct op *emit(struct vm *vm, enum op_code code, struct form *form) {
   assert(vm->op_count < MAX_OP_COUNT);
-  struct op *op = vm->ops + vm->op_count++;
-  op->code = code;
-  op->form = form;
+  struct op *op = op_init(vm->ops + vm->op_count++, code, form);
   return op;
 }
 
@@ -295,6 +355,11 @@ struct val *reg(struct vm *vm, reg_t reg) {
 struct val *push(struct vm *vm) {
   struct state *s = peek_state(vm);
   return s->stack+s->stack_size++;
+}
+
+struct val *push_init(struct vm *vm, struct type *type) {
+  struct state *s = peek_state(vm);
+  return val_init(s->stack+s->stack_size++, type);
 }
 
 struct val *peek(struct vm *vm) {
@@ -333,12 +398,21 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   
 enum eval_result eval(struct vm *vm, struct op *op) {
   static const void* dispatch[] = {
-    &&LOAD, &&PUSH, &&STORE,
+    &&EQUAL, &&LOAD, &&PUSH, &&STORE,
     //---STOP---
     &&STOP};
   
   DISPATCH(op);
 
+ EQUAL:{
+    struct op_equal *equal = &op->as_equal;
+    struct val x = equal->x, y = equal->y;
+    if (!y.type) { y = *pop(vm); }
+    if (!x.type) { x = *pop(vm); }
+    push_init(vm, &vm->bool_type)->as_bool = val_equal(&x, &y);
+    DISPATCH(op+1);
+  }
+  
  LOAD: {
     *reg(vm, op->as_load.reg) = *pop(vm);
     DISPATCH(op+1);
@@ -560,7 +634,19 @@ enum emit_result debug_body(struct macro *self, struct form *form, struct ls *in
   return EMIT_OK;
 }
 
-const int VERSION = 1;
+enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+  struct op_equal *op = &emit(vm, OP_EQUAL, form)->as_equal;
+
+  struct form *x = baseof(ls_delete(in->next), struct form, ls);
+  struct val *xv = form_val(x, vm);
+  if (xv) { op->x = *xv; }
+
+  struct form *y = baseof(ls_delete(in->next), struct form, ls);
+  struct val *yv = form_val(y, vm);
+  if (yv) { op->y = *yv; }
+
+  return EMIT_OK;
+}
 
 int main () {
   printf("fibr %d\n\n", VERSION);
@@ -580,6 +666,11 @@ int main () {
   struct macro debug_macro;
   macro_init(&debug_macro, "debug", 0, debug_body);
   bind_init(&vm, "debug", &macro_type)->as_macro = &debug_macro;
+
+  struct macro equal_macro;
+  macro_init(&equal_macro, "=", 0, equal_body);
+  bind_init(&vm, "=", &macro_type)->as_macro = &equal_macro;
+
   struct pos pos;
   pos_init(&pos, "repl", 0, 0);
 
