@@ -1,5 +1,3 @@
-* finish read_int
-** alisp
 * finish read_group
 ** alisp
 * add equal macro/op

@@ -9,31 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define baseof(p, t, m) ({			\
-      uint8_t *_p = (uint8_t *)(p);		\
-      _p ? ((t *)(_p - offsetof(t, m))) : NULL;	\
-    })
-
-#define _CONCAT(x, y)				\
-  x##y
-
-#define CONCAT(x, y)				\
-  _CONCAT(x, y)
-
-#define UNIQUE(x)				\
-  CONCAT(x, __COUNTER__)
-
-#define _ls_do(ls, i, _next)				\
-  for (struct ls *i = (ls)->next, *_next = i->next;	\
-       i != (ls);					\
-       i = _next, _next = i->next)
-
-#define ls_do(ls, i)				\
-  _ls_do(ls, i, UNIQUE(next))
-
-struct ls {
-  struct ls *prev, *next;
-};
+#include "fibr.h"
 
 void ls_init(struct ls *self) { self->prev = self->next = self; }
 
@@ -52,46 +28,10 @@ struct ls *ls_delete(struct ls *self) {
   return self;
 }
 
-struct macro;
-struct type;
-struct vm;
-
-typedef int32_t int_t;
-typedef uint8_t reg_t;
-
-struct val {
-  struct type *type;
-
-  union {
-    bool as_bool;
-    int_t as_int;
-    struct macro *as_macro;
-    struct type *as_meta;
-    reg_t as_reg;
-  };
-};
-
 struct val *val_init(struct val *self, struct type *type) {
   self->type = type;
   return self;
 }
-
-struct form;
-
-const uint8_t MAX_NAME_LENGTH = 64;
-
-enum emit_result {EMIT_OK, EMIT_ERROR}; 
-
-struct type {
-  char name[MAX_NAME_LENGTH];
-  
-  struct { 
-    void (*dump)(struct val *val, FILE *out);
-    enum emit_result (*emit)(struct val *val, struct form *form, struct ls *in, struct vm *vm);
-    bool (*is_true)(struct val *val);
-    struct val *(*literal)(struct val *val);
-  } methods;
-};
 
 enum emit_result default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm);
 
@@ -128,22 +68,10 @@ bool val_is_true(struct val *self) {
   return self->type->methods.is_true(self);
 }
 
-struct env_item {
-  char name[MAX_NAME_LENGTH];
-  struct val val;
-};
-
 struct val *val_literal(struct val *self) {
   assert(self->type->methods.literal);
   return self->type->methods.literal(self);
 }
-
-const uint8_t MAX_ENV_SIZE = 64;
-
-struct env {
-  struct env_item items[MAX_ENV_SIZE];
-  uint8_t item_count;
-};
 
 struct env *env_init(struct env *self) {
   memset(self->items, 0, sizeof(self->items));
@@ -181,49 +109,12 @@ struct val *env_get(struct env *self, const char *name) {
   return NULL;
 }
 
-struct scope {
-  struct scope *parent_scope;
-  struct env bindings;
-  reg_t reg_count;
-};
-
-const uint8_t MAX_POS_SOURCE_LENGTH = 255;
-
-struct pos {
-  char source[MAX_POS_SOURCE_LENGTH];
-  uint16_t line, column;
-};
-
 struct pos *pos_init(struct pos *self, const char *source, int line, int column) {
   strcpy(self->source, source);
   self->line = line;
   self->column = column;
   return self;
 }
-
-struct form_id {
-  char name[MAX_NAME_LENGTH];
-};
-
-struct form_literal {
-  struct val val;
-};
-
-typedef uint16_t nrefs_t;
-
-enum form_type {FORM_ID, FORM_LITERAL, FORM_SEMI};
-
-struct form {
-  struct ls ls;
-  enum form_type type;
-  struct pos pos;
-  nrefs_t nrefs;
-
-  union {
-    struct form_id as_id;
-    struct form_literal as_literal;
-  };
-};
 
 struct form *form_init(struct form *self, enum form_type type, struct pos pos, struct ls *out) {
   self->type = type;
@@ -269,34 +160,6 @@ struct val *form_val(struct form *self, struct vm *vm) {
   return NULL;
 }
 
-struct op_load {
-  reg_t reg;
-};
-
-struct op_push {
-  struct val val;
-};
-
-struct op_store {
-  reg_t reg;
-};
-
-enum op_code {
-  OP_LOAD, OP_PUSH, OP_STORE,
-  //---STOP---
-  OP_STOP};
-
-struct op {
-  enum op_code code;
-  struct form *form;
-  
-  union {
-    struct op_load as_load;
-    struct op_push as_push;
-    struct op_store as_store;
-  };
-};
-
 void op_dump(struct op *self, FILE *out) {
   switch (self->code) {
   case OP_LOAD:
@@ -316,39 +179,23 @@ void op_dump(struct op *self, FILE *out) {
   }
 }
 
-const reg_t MAX_REG_COUNT = 64;
-const uint8_t MAX_STACK_SIZE = 64;
-
-struct state {
-  struct val regs[MAX_REG_COUNT];
-  struct val stack[MAX_STACK_SIZE];
-  uint8_t stack_size;
-};
-
 struct state *state_init(struct state *self) {
   memset(self->regs, 0, sizeof(self->regs));
   self->stack_size = 0;
   return self;
 }
 
-const uint8_t MAX_SCOPE_COUNT = 8;
-const uint16_t MAX_OP_COUNT = 1024;
-const uint8_t MAX_STATE_COUNT = 64;
-const uint16_t MAX_ERROR_LENGTH = 1024;
+void int_dump(struct val *val, FILE *out) {
+  fprintf(out, "%" PRId32, val->as_int);
+}
 
-struct vm {  
-  struct scope scopes[MAX_SCOPE_COUNT];
-  uint8_t scope_count;
+bool int_is_true(struct val *val) {
+  return val->as_int;
+}
 
-  struct op ops[MAX_OP_COUNT];
-  uint16_t op_count;
-
-  struct state states[MAX_STATE_COUNT];
-  uint8_t state_count;
-
-  char error[MAX_ERROR_LENGTH];
-  bool debug;
-};
+void meta_dump(struct val *val, FILE *out) {
+  fputs(val->as_meta->name, out);
+}
 
 struct vm *vm_init(struct vm *self) {
   self->scope_count = 0;
@@ -361,6 +208,17 @@ struct vm *vm_init(struct vm *self) {
   self->state_count = 0;
   *self->error = 0;
   self->debug = false;
+  push_scope(self);
+
+  type_init(&self->meta_type, "Meta");
+  self->meta_type.methods.dump = meta_dump;
+  bind_init(self, "Meta", &self->meta_type)->as_meta = &self->meta_type;
+
+  type_init(&self->int_type, "Int");
+  self->int_type.methods.dump = int_dump;
+  self->int_type.methods.is_true = int_is_true;
+  bind_init(self, "Int", &self->meta_type)->as_meta = &self->int_type;
+
   return self;
 }
 
@@ -472,8 +330,6 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
 #define DISPATCH(next_op)						\
   if (vm->debug) { op_dump(next_op, stdout); fputc('\n', stdout); }	\
   goto *dispatch[(op = next_op)->code]
-
-enum eval_result {EVAL_OK, EVAL_ERROR};
   
 enum eval_result eval(struct vm *vm, struct op *op) {
   static const void* dispatch[] = {
@@ -543,14 +399,6 @@ enum emit_result emit_forms(struct vm *vm, struct ls *in) {
   return EMIT_OK;
 }
 
-typedef enum emit_result (*macro_body_t)(struct macro *self, struct form *form, struct ls *in, struct vm *vm);
-
-struct macro {
-  char name[MAX_NAME_LENGTH];
-  uint8_t nargs;
-  macro_body_t body;
-};
-
 struct macro *macro_init(struct macro *self, const char *name, uint8_t nargs, macro_body_t body) {
   assert(strlen(name) < MAX_NAME_LENGTH);
   strcpy(self->name, name);
@@ -558,17 +406,7 @@ struct macro *macro_init(struct macro *self, const char *name, uint8_t nargs, ma
   self->body = body;
   return self;
 }
-
-enum read_result {READ_OK, READ_NULL, READ_ERROR};
   
-typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-
-enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-
 enum read_result read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   static const int COUNT = 5;
   static const reader_t readers[COUNT] = {read_ws, read_int, read_semi, read_group, read_id};
@@ -616,7 +454,44 @@ enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *ou
 }
 
 enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
-  return READ_NULL;
+  int_t v = 0;
+  bool neg = false;
+  struct pos fpos = *pos;
+  
+  char c = fgetc(in);
+  if (!c) { return READ_NULL; }
+
+  if (c == '-') {
+    c = fgetc(in);
+
+    if (isdigit(c)) {
+      neg = true;
+      pos->column++;
+      ungetc(c, in);
+    } else {
+      ungetc(c, in);
+      ungetc('-', in);
+      return READ_NULL;
+    }
+  } else {
+    ungetc(c, in);
+  }
+
+  while ((c = fgetc(in))) {
+    if (!isdigit(c)) {
+      ungetc(c, in);
+      break;
+    }
+    
+    v *= 10;
+    v += c - '0';
+    pos->column++;
+  }
+
+   if (pos->column == fpos.column) { return READ_NULL; }
+   struct form *f = new_form(FORM_LITERAL, fpos, out);
+   val_init(&f->as_literal.val, &vm->int_type)->as_int = neg ? -v : v;
+   return READ_OK;
 }
 
 enum read_result read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
@@ -657,15 +532,6 @@ enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *ou
   return READ_NULL;
 }
 
-
-void int_dump(struct val *val, FILE *out) {
-  fprintf(out, "%" PRId32, val->as_int);
-}
-
-bool int_is_true(struct val *val) {
-  return val->as_int;
-}
-
 void macro_dump(struct val *val, FILE *out) {
   fprintf(out, "Macro(%s)", val->as_macro->name);
 }
@@ -688,10 +554,6 @@ struct val *macro_literal(struct val *val) {
   return NULL;
 }
 
-void meta_dump(struct val *val, FILE *out) {
-  fputs(val->as_meta->name, out);
-}
-
 enum emit_result debug_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   vm->debug = !vm->debug;
   printf("%s\n", vm->debug ? "T" : "F");
@@ -705,27 +567,16 @@ int main () {
   
   struct vm vm;
   vm_init(&vm);
-  push_scope(&vm);
   push_state(&vm);
 
-  struct type meta_type;
-  type_init(&meta_type, "Meta");
-  meta_type.methods.dump = meta_dump;
-  bind_init(&vm, "Meta", &meta_type)->as_meta = &meta_type;
 
   struct type macro_type;
   type_init(&macro_type, "Macro");
   macro_type.methods.dump = macro_dump;
   macro_type.methods.emit = macro_emit;
   macro_type.methods.literal = macro_literal;
-  bind_init(&vm, "Macro", &meta_type)->as_meta = &macro_type;
+  bind_init(&vm, "Macro", &vm.meta_type)->as_meta = &macro_type;
   
-  struct type int_type;
-  type_init(&int_type, "Int");
-  int_type.methods.dump = int_dump;
-  int_type.methods.is_true = int_is_true;
-  bind_init(&vm, "Int", &meta_type)->as_meta = &int_type;
-
   struct macro debug_macro;
   macro_init(&debug_macro, "debug", 0, debug_body);
   bind_init(&vm, "debug", &macro_type)->as_macro = &debug_macro;
