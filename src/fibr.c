@@ -211,7 +211,7 @@ struct form_literal {
 
 typedef uint16_t nrefs_t;
 
-enum form_type {FORM_ID, FORM_LITERAL};
+enum form_type {FORM_ID, FORM_LITERAL, FORM_SEMI};
 
 struct form {
   struct ls ls;
@@ -261,6 +261,9 @@ struct val *form_val(struct form *self, struct vm *vm) {
     
   case FORM_LITERAL:
     return &self->as_literal.val;
+
+  case FORM_SEMI:
+    break;
   }
 
   return NULL;
@@ -522,8 +525,11 @@ enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
   case FORM_LITERAL:
     emit(vm, OP_PUSH, self)->as_push.val = self->as_literal.val;
     return EMIT_OK;
+  case FORM_SEMI:
+    error(vm, self->pos, "Semi emit");
+    break;
   }
-
+  
   return EMIT_ERROR;
 }
 
@@ -560,11 +566,12 @@ typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, st
 enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
 enum read_result read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
-  static const int COUNT = 4;
-  static const reader_t readers[COUNT] = {read_ws, read_int, read_group, read_id};
+  static const int COUNT = 5;
+  static const reader_t readers[COUNT] = {read_ws, read_int, read_semi, read_group, read_id};
 
   for (int i=0; i < COUNT; i++) {
     switch (readers[i](vm, pos, in, out)) {
@@ -590,12 +597,12 @@ enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *ou
 
   while ((c = fgetc(in))) {
     assert(p < name + MAX_NAME_LENGTH);
-    
-    if (isspace(c) || c == '(' || c == ')') {
+
+    if (isspace(c) || c == '(' || c == ')' || c == ';') {
       ungetc(c, in);
       break;
     }
-
+    
     *p++ = c;
     pos->column++;
   }
@@ -612,9 +619,25 @@ enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *o
   return READ_NULL;
 }
 
-enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
-  char c = 0, pc = 0;
+enum read_result read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+  struct pos fpos = *pos;
+  char c = 0;
   
+  if (!(c = fgetc(in))) { return READ_NULL; }
+  
+  if (c != ';') {
+    ungetc(c, in);
+    return READ_NULL;
+  }
+  
+    pos->column++;
+    new_form(FORM_SEMI, fpos, out);
+    return READ_OK;
+}
+    
+enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+  char c = 0;
+
   while ((c = fgetc(in))) {
     switch (c) {
     case ' ':
@@ -622,11 +645,6 @@ enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *ou
       pos->column++;
       break;
     case '\n':
-      if (pc == '\n') {
-	ungetc(c, in);
-	return READ_NULL;
-      }
-      
       pos->line++;
       pos->column = 0;
       break;
@@ -634,8 +652,6 @@ enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *ou
       ungetc(c, in);
       return READ_NULL;
     }
-
-    pc = c;
   }
   
   return READ_NULL;
@@ -720,7 +736,16 @@ int main () {
   
     struct ls forms;
     ls_init(&forms);
-    while (read_form(&vm, &pos, stdin, &forms));
+
+    while (read_form(&vm, &pos, stdin, &forms) == READ_OK) {
+      struct form *f = baseof(forms.prev, struct form, ls);
+
+      if (f->type == FORM_SEMI) {
+	ls_delete(forms.prev);
+	break;
+      }
+    }
+    
     struct op *start = peek_op(&vm);
 
     if (emit_forms(&vm, &forms) != EMIT_OK) {

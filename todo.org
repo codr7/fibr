@@ -2,11 +2,15 @@
 ** alisp
 * finish read_group
 ** alisp
+* add equal macro/op
+** add methods.equal/val_equal
 * add if-macro
 ** add branch op
 * add fun
 ** convert debug
 ** push T/F instead of printing
+* extract fibr.h
+** include in .c
 * fibrec
 * fibtail
 * track forms in vm pool
