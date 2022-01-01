@@ -1,5 +1,7 @@
-* add if-macro
-** add branch op
+* add ddrop
+** add drop op
+** handle in id form emit
+** add to readme
 * finish read_group
 ** alisp
 * add fun

@@ -19,7 +19,7 @@ typedef int32_t int_t;
 typedef uint16_t nrefs_t;
 typedef int16_t reg_t;
 
-const uint32_t VERSION = 1;
+const uint32_t VERSION = 2;
 
 const uint8_t MAX_ENV_SIZE = 64;
 const uint16_t MAX_ERROR_LENGTH = 1024;
@@ -120,8 +120,16 @@ struct macro {
   macro_body_t body;
 };
 
+struct op_branch {
+  struct op *false_pc;
+};
+
 struct op_equal {
   struct val x, y;
+};
+
+struct op_jump {
+  struct op *pc;
 };
 
 struct op_load {
@@ -137,7 +145,7 @@ struct op_store {
 };
 
 enum op_code {
-  OP_EQUAL, OP_LOAD, OP_PUSH, OP_STORE,
+  OP_BRANCH, OP_EQUAL, OP_JUMP, OP_LOAD, OP_PUSH, OP_STORE,
   //---STOP---
   OP_STOP};
 
@@ -146,7 +154,9 @@ struct op {
   struct form *form;
   
   union {
+    struct op_branch as_branch;
     struct op_equal as_equal;
+    struct op_jump as_jump;
     struct op_load as_load;
     struct op_push as_push;
     struct op_store as_store;

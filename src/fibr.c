@@ -35,7 +35,7 @@ struct val *val_init(struct val *self, struct type *type) {
 
 enum emit_result default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm);
 
-bool default_is_true(struct val *val) {
+bool default_true(struct val *val) {
   return true;
 }
 
@@ -49,7 +49,7 @@ struct type *type_init(struct type *self, const char *name) {
   self->methods.dump = NULL;
   self->methods.emit = default_emit;
   self->methods.equal = NULL;
-  self->methods.is_true = default_is_true;
+  self->methods.is_true = default_true;
   self->methods.literal = default_literal;
   return self;
 }
@@ -69,7 +69,7 @@ bool val_equal(struct val *self, struct val *other) {
   return self->type->methods.equal(self, other);
 }
 
-bool val_is_true(struct val *self) {
+bool val_true(struct val *self) {
   assert(self->type->methods.is_true);
   return self->type->methods.is_true(self);
 }
@@ -171,8 +171,14 @@ struct op *op_init(struct op *self, enum op_code code, struct form *form) {
   self->form = form;
 
   switch (code) {
+  case OP_BRANCH:
+    self->as_branch.false_pc = NULL;
+    break;
   case OP_EQUAL:
     self->as_equal.x.type = self->as_equal.y.type = NULL;
+    break;
+  case OP_JUMP:
+    self->as_jump.pc = NULL;
     break;
   case OP_PUSH:
     self->as_push.val.type = NULL;
@@ -192,12 +198,19 @@ struct op *op_init(struct op *self, enum op_code code, struct form *form) {
 
 void op_dump(struct op *self, FILE *out) {
   switch (self->code) {
+  case OP_BRANCH:
+    fprintf(out, "BRANCH ");
+    op_dump(self->as_branch.false_pc, out);
+    break;
   case OP_EQUAL:
     fprintf(out, "EQUAL ");
     if (self->as_equal.x.type) { val_dump(&self->as_equal.x, out); }
     if (self->as_equal.y.type) { val_dump(&self->as_equal.y, out); }
     break;
-
+  case OP_JUMP:
+    fprintf(out, "JUMP ");
+    op_dump(self->as_jump.pc, out);
+    break;
   case OP_LOAD:
     fprintf(out, "LOAD %" PRId16, self->as_load.reg);
     break;
@@ -229,7 +242,7 @@ bool bool_equal(struct val *x, struct val *y) {
   return x->as_bool == y->as_bool;
 }
 
-bool bool_is_true(struct val *val) {
+bool bool_true(struct val *val) {
   return val->as_bool;
 }
 
@@ -241,7 +254,7 @@ bool int_equal(struct val *x, struct val *y) {
   return x->as_int == y->as_int;
 }
 
-bool int_is_true(struct val *val) {
+bool int_true(struct val *val) {
   return val->as_int;
 }
 
@@ -269,7 +282,7 @@ struct vm *vm_init(struct vm *self) {
   type_init(&self->bool_type, "Bool");
   self->bool_type.methods.dump = bool_dump;
   self->bool_type.methods.equal = bool_equal;  
-  self->bool_type.methods.is_true = bool_is_true;
+  self->bool_type.methods.is_true = bool_true;
   bind_init(self, "Bool", &self->meta_type)->as_meta = &self->bool_type;
 
   bind_init(self, "T", &self->bool_type)->as_bool = true;
@@ -278,7 +291,7 @@ struct vm *vm_init(struct vm *self) {
   type_init(&self->int_type, "Int");
   self->int_type.methods.dump = int_dump;
   self->int_type.methods.equal = int_equal;
-  self->int_type.methods.is_true = int_is_true;
+  self->int_type.methods.is_true = int_true;
   bind_init(self, "Int", &self->meta_type)->as_meta = &self->int_type;
 
   return self;
@@ -342,6 +355,10 @@ struct op *emit(struct vm *vm, enum op_code code, struct form *form) {
   return op;
 }
 
+struct op *pc(struct vm *vm) {
+  return vm->ops + vm->op_count;
+}
+
 struct op *peek_op(struct vm *vm) {
   assert(vm->op_count < MAX_OP_COUNT);
   return vm->ops+vm->op_count;
@@ -398,13 +415,18 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   
 enum eval_result eval(struct vm *vm, struct op *op) {
   static const void* dispatch[] = {
-    &&EQUAL, &&LOAD, &&PUSH, &&STORE,
+    &&BRANCH, &&EQUAL, &&JUMP, &&LOAD, &&PUSH, &&STORE,
     //---STOP---
     &&STOP};
   
   DISPATCH(op);
 
- EQUAL:{
+ BRANCH: {
+    struct op_branch *branch = &op->as_branch;
+    DISPATCH(val_true(pop(vm)) ? op+1 : branch->false_pc);
+  }
+  
+ EQUAL: {
     struct op_equal *equal = &op->as_equal;
     struct val x = equal->x, y = equal->y;
     if (!y.type) { y = *pop(vm); }
@@ -412,7 +434,12 @@ enum eval_result eval(struct vm *vm, struct op *op) {
     push_init(vm, &vm->bool_type)->as_bool = val_equal(&x, &y);
     DISPATCH(op+1);
   }
-  
+
+ JUMP: {
+    struct op_jump *jump = &op->as_jump;
+    DISPATCH(jump->pc);
+  }
+
  LOAD: {
     *reg(vm, op->as_load.reg) = *pop(vm);
     DISPATCH(op+1);
@@ -639,12 +666,44 @@ enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in
 
   struct form *x = baseof(ls_delete(in->next), struct form, ls);
   struct val *xv = form_val(x, vm);
-  if (xv) { op->x = *xv; }
+  
+  if (xv) {
+    op->x = *xv;
+  } else {
+    enum emit_result fr = form_emit(x, in, vm);
+    if (fr != EMIT_OK) { return fr; }
+  }
 
   struct form *y = baseof(ls_delete(in->next), struct form, ls);
   struct val *yv = form_val(y, vm);
-  if (yv) { op->y = *yv; }
 
+  if (yv) {
+    op->y = *yv;
+  } else {
+    enum emit_result fr = form_emit(y, in, vm);
+    if (fr != EMIT_OK) { return fr; }
+  }
+
+  return EMIT_OK;
+}
+
+enum emit_result if_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+  struct form *cf = baseof(ls_delete(in->next), struct form, ls);
+  enum emit_result fr = form_emit(cf, in, vm);
+  if (fr != EMIT_OK) { return fr; }
+  struct op_branch *b = &emit(vm, OP_BRANCH, form)->as_branch;
+
+  struct form *tf = baseof(ls_delete(in->next), struct form, ls);
+  fr = form_emit(tf, in, vm);
+  if (fr != EMIT_OK) { return fr; }
+
+  struct op_jump *j = &emit(vm, OP_JUMP, form)->as_jump;
+  b->false_pc = pc(vm);
+  struct form *ff = baseof(ls_delete(in->next), struct form, ls);
+  fr = form_emit(ff, in, vm);
+  if (fr != EMIT_OK) { return fr; }
+  j->pc = pc(vm);
+  
   return EMIT_OK;
 }
 
@@ -668,8 +727,12 @@ int main () {
   bind_init(&vm, "debug", &macro_type)->as_macro = &debug_macro;
 
   struct macro equal_macro;
-  macro_init(&equal_macro, "=", 0, equal_body);
+  macro_init(&equal_macro, "=", 2, equal_body);
   bind_init(&vm, "=", &macro_type)->as_macro = &equal_macro;
+
+  struct macro if_macro;
+  macro_init(&if_macro, "if", 3, if_body);
+  bind_init(&vm, "if", &macro_type)->as_macro = &if_macro;
 
   struct pos pos;
   pos_init(&pos, "repl", 0, 0);

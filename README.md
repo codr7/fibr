@@ -13,14 +13,14 @@ $ cd build
 $ cmake ..
 $ make
 $ rlwrap ./fibr
-fibr 1
+fibr 2
 
 42;
 [42]
 ```
 
 ### repl
-The repl evaluates read forms up to the next semicolon.
+The REPL evaluates read forms up to the next semicolon.
 
 ```
 foo;bar
@@ -28,4 +28,15 @@ Error in repl, line 0 column 0: Unknown id: foo
 
 ;
 Error in repl, line 0 column 4: Unknown id: bar
+```
+
+### branches
+`if` may be used to branch on any condition.
+
+```
+if 42 T F;
+[T]
+
+if 0 T F;
+[T F]
 ```
