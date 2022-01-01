@@ -174,6 +174,9 @@ struct op *op_init(struct op *self, enum op_code code, struct form *form) {
   case OP_BRANCH:
     self->as_branch.false_pc = NULL;
     break;
+  case OP_DROP:
+    self->as_drop.count = 1;
+    break;
   case OP_EQUAL:
     self->as_equal.x.type = self->as_equal.y.type = NULL;
     break;
@@ -201,6 +204,9 @@ void op_dump(struct op *self, FILE *out) {
   case OP_BRANCH:
     fprintf(out, "BRANCH ");
     op_dump(self->as_branch.false_pc, out);
+    break;
+  case OP_DROP:
+    fprintf(out, "DROP %" PRIu8, self->as_drop.count);
     break;
   case OP_EQUAL:
     fprintf(out, "EQUAL ");
@@ -415,7 +421,7 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   
 enum eval_result eval(struct vm *vm, struct op *op) {
   static const void* dispatch[] = {
-    &&BRANCH, &&EQUAL, &&JUMP, &&LOAD, &&PUSH, &&STORE,
+    &&BRANCH, &&DROP, &&EQUAL, &&JUMP, &&LOAD, &&PUSH, &&STORE,
     //---STOP---
     &&STOP};
   
@@ -424,6 +430,18 @@ enum eval_result eval(struct vm *vm, struct op *op) {
  BRANCH: {
     struct op_branch *branch = &op->as_branch;
     DISPATCH(val_true(pop(vm)) ? op+1 : branch->false_pc);
+  }
+
+ DROP: {
+    struct op_drop *drop = &op->as_drop;
+    struct state *state = peek_state(vm);
+    if (state->stack_size < drop->count) {
+      error(vm, op->form->pos, "Not enough values");
+      return EVAL_ERROR;
+    }
+    
+    state->stack_size -= drop->count; 
+    DISPATCH(op+1);
   }
   
  EQUAL: {
@@ -469,6 +487,20 @@ enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
   switch (self->type) {
   case FORM_ID: {
     const char *name = self->as_id.name;
+    uint8_t drop_count = 0;
+    
+    for (const char *c = name; *c; c++, drop_count++) {
+      if (*c != 'd') {
+	drop_count = 0;
+	break;
+      }
+    }
+
+    if (drop_count) {
+      emit(vm, OP_DROP, self)->as_drop.count = drop_count;
+      return EMIT_OK;
+    }
+    
     struct val *v = find(vm, name);
 
     if (!v) {
@@ -533,7 +565,7 @@ enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls 
 enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   struct pos fpos = *pos;
   char name[MAX_NAME_LENGTH], *p = name, c = 0;
-
+  
   while ((c = fgetc(in))) {
     assert(p < name + MAX_NAME_LENGTH);
 

@@ -13,7 +13,7 @@ $ cd build
 $ cmake ..
 $ make
 $ rlwrap ./fibr
-fibr 2
+fibr 3
 
 42;
 [42]
@@ -28,6 +28,14 @@ Error in repl, line 0 column 0: Unknown id: foo
 
 ;
 Error in repl, line 0 column 4: Unknown id: bar
+```
+
+### the stack
+`d+` may be used to drop values from the stack.
+
+```
+1 2 3 4 5 dd;
+[1 2 3]
 ```
 
 ### branches
