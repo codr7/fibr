@@ -240,6 +240,12 @@ struct state *state_init(struct state *self) {
   return self;
 }
 
+struct frame *frame_init(struct frame *self, struct func *func, struct op *ret_pc) {
+  self->func = func;
+  self->ret_pc = ret_pc;
+  return self;
+}
+
 void bool_dump(struct val *val, FILE *out) {
   fputs(val->as_bool ? "T" : "F", out);
 }
@@ -277,6 +283,7 @@ struct vm *vm_init(struct vm *self) {
   
   self->op_count = 0;
   self->state_count = 0;
+  self->frame_count = 0;
   *self->error = 0;
   self->debug = false;
   push_scope(self);
@@ -353,6 +360,21 @@ struct state *push_state(struct vm *vm) {
 struct state *peek_state(struct vm *vm) {
   assert(vm->state_count);
   return vm->states+vm->state_count-1;
+}
+
+struct frame *push_frame(struct vm *vm, struct func *func, struct op *ret_pc) {
+  assert(vm->frame_count < MAX_FRAME_COUNT);
+  return frame_init(vm->frames+vm->frame_count++, func, ret_pc);
+}
+			 
+struct frame *peek_frame(struct vm *vm) {
+  assert(vm->frame_count);
+  return vm->frames+vm->frame_count-1;
+}
+
+struct frame *pop_frame(struct vm *vm) {
+  assert(vm->frame_count);
+  return vm->frames + --vm->frame_count;
 }
 
 struct op *emit(struct vm *vm, enum op_code code, struct form *form) {
@@ -530,6 +552,19 @@ enum emit_result emit_forms(struct vm *vm, struct ls *in) {
   }
 
   return EMIT_OK;
+}
+
+struct func *func_init(struct func *self,
+		       const char *name,
+		       uint8_t nargs, struct func_arg args[],
+		       uint8_t nrets, struct type *rets[]) {
+  assert(strlen(name) < MAX_NAME_LENGTH);
+  strcpy(self->name, name);
+  self->nargs = nargs;
+  memcpy(self->args, args, nargs*sizeof(struct func_arg));
+  self->nrets = nrets;
+  memcpy(self->rets, rets, nrets*sizeof(struct type *));
+  return self;
 }
 
 struct macro *macro_init(struct macro *self, const char *name, uint8_t nargs, macro_body_t body) {

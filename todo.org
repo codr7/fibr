@@ -1,9 +1,9 @@
-* finish read_group
-** alisp
-* add fun
+* finish func
+** add CALL op
+** add func_emit
 ** convert debug
-** push T/F instead of printing
-** include in .c
+*** push T/F instead of printing
+* finish read_group
 * fibrec
 * fibtail
 * track forms in vm pool

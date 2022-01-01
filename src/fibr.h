@@ -19,10 +19,13 @@ typedef int32_t int_t;
 typedef uint16_t nrefs_t;
 typedef int16_t reg_t;
 
-const uint32_t VERSION = 3;
+const uint8_t VERSION = 3;
 
 const uint8_t MAX_ENV_SIZE = 64;
 const uint16_t MAX_ERROR_LENGTH = 1024;
+const uint8_t MAX_FRAME_COUNT = 64;
+const uint8_t MAX_FUNC_ARG_COUNT = 8;
+const uint8_t MAX_FUNC_RET_COUNT = 8;
 const uint8_t MAX_NAME_LENGTH = 64;
 const uint16_t MAX_OP_COUNT = 1024;
 const uint8_t MAX_POS_SOURCE_LENGTH = 255;
@@ -112,6 +115,25 @@ struct type {
   } methods;
 };
 
+struct func;
+
+typedef enum eval_result (*func_body_t)(struct func *self, struct vm *vm);
+
+struct func_arg {
+  char name[MAX_NAME_LENGTH];
+  struct type *type;
+};
+
+struct func {
+  char name[MAX_NAME_LENGTH];
+  struct func_arg args[MAX_FUNC_ARG_COUNT];
+  uint8_t nargs;
+  struct type *rets[MAX_FUNC_RET_COUNT];
+  uint8_t nrets;
+  func_body_t body;
+};
+
+
 typedef enum emit_result (*macro_body_t)(struct macro *self, struct form *form, struct ls *in, struct vm *vm);
 
 struct macro {
@@ -180,6 +202,11 @@ struct state {
   uint8_t stack_size;
 };
 
+struct frame {
+  struct func *func;
+  struct op *ret_pc;
+};
+
 struct vm {
   struct type bool_type, int_type, meta_type;
   
@@ -191,6 +218,9 @@ struct vm {
 
   struct state states[MAX_STATE_COUNT];
   uint8_t state_count;
+
+  struct frame frames[MAX_FRAME_COUNT];
+  uint8_t frame_count;
 
   char error[MAX_ERROR_LENGTH];
   bool debug;
