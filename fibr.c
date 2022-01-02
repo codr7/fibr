@@ -169,7 +169,9 @@ Each type of operation may specify it's own data-members by adding a struct and 
 
 The code is in eval(). 
 
-Please note that the order has to be consistent, and is thus kept alphabetical to simplify verification; the consequences of getting it wrong are potentially undefined. The reason is to support using computed goto in eval().
+Please note that the order has to be consistent, and is thus kept alphabetical to simplify verification; 
+the consequences of getting it wrong are potentially undefined. 
+The reason is to support using computed goto in eval().
 ***/
 
 struct op_branch {
