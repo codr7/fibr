@@ -9,23 +9,22 @@
 #include <stdlib.h>
 #include <string.h>
 
-const uint8_t VERSION = 6;
+#define VERSION 6
+
+#define MAX_ENV_SIZE 64
+#define MAX_ERROR_LENGTH 1024
+#define MAX_FRAME_COUNT 64
+#define MAX_FUNC_ARG_COUNT 8
+#define MAX_FUNC_RET_COUNT 8
+#define MAX_NAME_LENGTH 64
+#define MAX_OP_COUNT 1024
+#define MAX_POS_SOURCE_LENGTH 255
+#define MAX_REG_COUNT 64
+#define MAX_SCOPE_COUNT 8
+#define MAX_STACK_SIZE 64
+#define MAX_STATE_COUNT 64
 
 typedef int16_t reg_t;
-
-const uint8_t MAX_ENV_SIZE = 64;
-const uint16_t MAX_ERROR_LENGTH = 1024;
-const uint8_t MAX_FRAME_COUNT = 64;
-const uint8_t MAX_FUNC_ARG_COUNT = 8;
-const uint8_t MAX_FUNC_RET_COUNT = 8;
-const uint8_t MAX_NAME_LENGTH = 64;
-const uint16_t MAX_OP_COUNT = 1024;
-const uint8_t MAX_POS_SOURCE_LENGTH = 255;
-const reg_t MAX_REG_COUNT = 64;
-const uint8_t MAX_SCOPE_COUNT = 8;
-const uint8_t MAX_STACK_SIZE = 64;
-const uint8_t MAX_STATE_COUNT = 64;
-
 typedef int32_t int_t;
 typedef uint16_t nrefs_t;
 
