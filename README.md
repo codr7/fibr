@@ -46,3 +46,11 @@ if 42 T F;
 if 0 T F;
 [T F]
 ```
+
+### placeholders
+`_` may be used as a placeholder wherever the syntax requires a value. It has no runtime effects, which means that whatever is on top of the stack will be used instead.
+
+```
+35 + _ 7;
+[42]
+```

@@ -1099,6 +1099,10 @@ enum emit_result if_body(struct macro *self, struct form *form, struct ls *in, s
   return EMIT_OK;
 }
 
+enum emit_result nop_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+  return EMIT_OK;
+}
+
 struct op *sub_body(struct func *self, struct op *ret_pc, struct vm *vm) {
   struct val y = *pop(vm);
   struct val *x = peek(vm);
@@ -1147,6 +1151,10 @@ int main () {
   struct macro if_macro;
   macro_init(&if_macro, "if", 3, if_body);
   bind_init(&vm, "if", &macro_type)->as_macro = &if_macro;
+
+  struct macro nop_macro;
+  macro_init(&nop_macro, "_", 0, nop_body);
+  bind_init(&vm, "_", &macro_type)->as_macro = &nop_macro;
 
   struct func sub_func;
   func_init(&sub_func, "-",
