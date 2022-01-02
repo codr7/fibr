@@ -519,6 +519,7 @@ struct func {
   struct type *rets[MAX_FUNC_RET_COUNT];
   uint8_t nrets;
   func_body_t body;
+  struct op *start_pc;
 };
 
 struct func_arg arg(const char *name, struct type *type) {
@@ -540,11 +541,24 @@ struct func *func_init(struct func *self,
   self->nrets = nrets;
   memcpy(self->rets, rets, nrets*sizeof(struct type *));
   self->body = body;
+  self->start_pc = NULL;
   return self;
 }
 
 void func_dump(struct func *self, FILE *out) {
   fputs(self->name, out);
+}
+
+struct op *pc(struct vm *vm);
+
+enum emit_result func_emit(struct func *self, struct form *form, struct ls *in, struct vm *vm) {
+  struct op_jump *skip = &emit(vm, OP_JUMP, form)->as_jump;
+  self->start_pc = pc(vm);
+  enum emit_result res = form_emit(form, in, vm);
+  if (res != EMIT_OK) { return res; }
+  emit(vm, OP_RET, form)->as_ret.func = self;
+  skip->pc = pc(vm);
+  return EMIT_OK;
 }
 
 struct scope {
@@ -564,8 +578,12 @@ struct frame {
   struct op *ret_pc;
 };
 
+/*** Virtual Machines
+     The VM is the engine of the interpreter, the one struct to rule them all.
+***/
+
 struct vm {
-  struct type bool_type, int_type, meta_type;
+  struct type bool_type, func_type, int_type, meta_type;
   
   struct scope scopes[MAX_SCOPE_COUNT];
   uint8_t scope_count;
@@ -585,6 +603,95 @@ struct vm {
 
 struct val *bind_init(struct vm *vm, const char *name, struct type *type);
 struct scope *push_scope(struct vm *vm);
+
+void bool_dump(struct val *val, FILE *out) {
+  fputs(val->as_bool ? "T" : "F", out);
+}
+
+bool bool_equal(struct val *x, struct val *y) {
+  return x->as_bool == y->as_bool;
+}
+
+bool bool_true(struct val *val) {
+  return val->as_bool;
+}
+
+void func_val_dump(struct val *val, FILE *out) {
+  func_dump(val->as_func, out);
+}
+
+enum emit_result func_val_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
+  for (uint8_t i = 0; i < val->as_func->nargs; i++) {
+    struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
+    enum emit_result res = form_emit(f, in, vm);
+    if (res != EMIT_OK) { return res; }
+  }
+       
+  emit(vm, OP_CALL, form)->as_call.func = val->as_func;
+  return EMIT_OK;
+}
+
+struct val *func_val_literal(struct val *val) {
+  return NULL;
+}
+
+void int_dump(struct val *val, FILE *out) {
+  fprintf(out, "%" PRId32, val->as_int);
+}
+
+bool int_equal(struct val *x, struct val *y) {
+  return x->as_int == y->as_int;
+}
+
+bool int_true(struct val *val) {
+  return val->as_int;
+}
+
+void meta_dump(struct val *val, FILE *out) {
+  fputs(val->as_meta->name, out);
+}
+
+struct vm *vm_init(struct vm *self) {
+  self->scope_count = 0;
+
+  for (struct scope *s = self->scopes, *ps = NULL; s < self->scopes+MAX_SCOPE_COUNT; ps = s, s++) {
+    s->parent_scope = ps;
+  }
+  
+  self->op_count = 0;
+  self->state_count = 0;
+  self->frame_count = 0;
+  *self->error = 0;
+  self->debug = false;
+  push_scope(self);
+
+  type_init(&self->meta_type, "Meta");
+  self->meta_type.methods.dump = meta_dump;
+  bind_init(self, "Meta", &self->meta_type)->as_meta = &self->meta_type;
+
+  type_init(&self->bool_type, "Bool");
+  self->bool_type.methods.dump = bool_dump;
+  self->bool_type.methods.equal = bool_equal;  
+  self->bool_type.methods.is_true = bool_true;
+  bind_init(self, "Bool", &self->meta_type)->as_meta = &self->bool_type;
+
+  bind_init(self, "T", &self->bool_type)->as_bool = true;
+  bind_init(self, "F", &self->bool_type)->as_bool = false;
+
+  type_init(&self->func_type, "Func");
+  self->func_type.methods.dump = func_val_dump;
+  self->func_type.methods.emit = func_val_emit;
+  self->func_type.methods.literal = func_val_literal;
+  bind_init(self, "Func", &self->meta_type)->as_meta = &self->func_type;
+
+  type_init(&self->int_type, "Int");
+  self->int_type.methods.dump = int_dump;
+  self->int_type.methods.equal = int_equal;
+  self->int_type.methods.is_true = int_true;
+  bind_init(self, "Int", &self->meta_type)->as_meta = &self->int_type;
+
+  return self;
+}
 
 typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
@@ -678,70 +785,6 @@ struct state *state_init(struct state *self) {
 struct frame *frame_init(struct frame *self, struct func *func, struct op *ret_pc) {
   self->func = func;
   self->ret_pc = ret_pc;
-  return self;
-}
-
-void bool_dump(struct val *val, FILE *out) {
-  fputs(val->as_bool ? "T" : "F", out);
-}
-
-bool bool_equal(struct val *x, struct val *y) {
-  return x->as_bool == y->as_bool;
-}
-
-bool bool_true(struct val *val) {
-  return val->as_bool;
-}
-
-void int_dump(struct val *val, FILE *out) {
-  fprintf(out, "%" PRId32, val->as_int);
-}
-
-bool int_equal(struct val *x, struct val *y) {
-  return x->as_int == y->as_int;
-}
-
-bool int_true(struct val *val) {
-  return val->as_int;
-}
-
-void meta_dump(struct val *val, FILE *out) {
-  fputs(val->as_meta->name, out);
-}
-
-struct vm *vm_init(struct vm *self) {
-  self->scope_count = 0;
-
-  for (struct scope *s = self->scopes, *ps = NULL; s < self->scopes+MAX_SCOPE_COUNT; ps = s, s++) {
-    s->parent_scope = ps;
-  }
-  
-  self->op_count = 0;
-  self->state_count = 0;
-  self->frame_count = 0;
-  *self->error = 0;
-  self->debug = false;
-  push_scope(self);
-
-  type_init(&self->meta_type, "Meta");
-  self->meta_type.methods.dump = meta_dump;
-  bind_init(self, "Meta", &self->meta_type)->as_meta = &self->meta_type;
-
-  type_init(&self->bool_type, "Bool");
-  self->bool_type.methods.dump = bool_dump;
-  self->bool_type.methods.equal = bool_equal;  
-  self->bool_type.methods.is_true = bool_true;
-  bind_init(self, "Bool", &self->meta_type)->as_meta = &self->bool_type;
-
-  bind_init(self, "T", &self->bool_type)->as_bool = true;
-  bind_init(self, "F", &self->bool_type)->as_bool = false;
-
-  type_init(&self->int_type, "Int");
-  self->int_type.methods.dump = int_dump;
-  self->int_type.methods.equal = int_equal;
-  self->int_type.methods.is_true = int_true;
-  bind_init(self, "Int", &self->meta_type)->as_meta = &self->int_type;
-
   return self;
 }
 
@@ -954,7 +997,7 @@ enum eval_result eval(struct vm *vm, struct op *start_pc) {
 /*** Readers
      Readers transform code into forms.
      New readers must be added in the right order to read_form().
- ***/
+***/
 
 enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
@@ -1126,25 +1169,6 @@ enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *ou
   return READ_NULL;
 }
 
-void func_val_dump(struct val *val, FILE *out) {
-  func_dump(val->as_func, out);
-}
-
-enum emit_result func_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
-  for (uint8_t i = 0; i < val->as_func->nargs; i++) {
-    struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
-    enum emit_result res = form_emit(f, in, vm);
-    if (res != EMIT_OK) { return res; }
-  }
-       
-  emit(vm, OP_CALL, form)->as_call.func = val->as_func;
-  return EMIT_OK;
-}
-
-struct val *func_literal(struct val *val) {
-  return NULL;
-}
-
 void macro_dump(struct val *val, FILE *out) {
   fprintf(out, "Macro(%s)", val->as_macro->name);
 }
@@ -1155,7 +1179,7 @@ enum emit_result macro_emit(struct val *val, struct form *form, struct ls *in, s
 
   for (uint8_t i = 0; i < self->nargs; i++, a = a->next) {
     if (a == in) {
-      error(vm, form->pos, "Missing macro arguments");
+      error(vm, form->pos, "Missing macro arguments: %s %" PRIu8, self->name, i);
       return EMIT_ERROR;
     }
   }
@@ -1206,6 +1230,37 @@ enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in
   return EMIT_OK;
 }
 
+struct op *__func_body(struct func *self, struct op *ret_pc, struct vm *vm) {
+  push_frame(vm, self, ret_pc);
+  return self->start_pc;
+}
+
+enum emit_result func_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+  struct form *name_form = BASEOF(ls_delete(in->next), struct form, ls);
+  const char *name = name_form->as_id.name;
+  
+  struct form *args_form = BASEOF(ls_delete(in->next), struct form, ls);
+  struct func_arg args[MAX_FUNC_ARG_COUNT];
+  uint8_t nargs = 0;
+  
+  struct form *rets_form = BASEOF(ls_delete(in->next), struct form, ls);
+  struct type *rets[MAX_FUNC_RET_COUNT];
+  uint8_t nrets = 0;
+
+  struct func *func = func_init(malloc(sizeof(struct func)), name, nargs, args, nrets, rets, __func_body);
+  struct form *body = BASEOF(ls_delete(in->next), struct form, ls);
+  enum emit_result res = func_emit(func, body, in, vm);
+  if (res != EMIT_OK) { return res; }
+  
+  if (strcmp(name, "_") == 0) {
+    push_init(vm, &vm->func_type)->as_func = func;
+  } else {
+    bind_init(vm, name, &vm->func_type)->as_func = func; 
+  }
+
+  return EMIT_OK;
+}
+
 enum emit_result if_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   struct form *cf = BASEOF(ls_delete(in->next), struct form, ls);
   enum emit_result fr = form_emit(cf, in, vm);
@@ -1244,13 +1299,6 @@ int main () {
   vm_init(&vm);
   push_state(&vm);
 
-  struct type func_type;
-  type_init(&func_type, "Func");
-  func_type.methods.dump = func_val_dump;
-  func_type.methods.emit = func_emit;
-  func_type.methods.literal = func_literal;
-  bind_init(&vm, "Func", &vm.meta_type)->as_meta = &func_type;
-
   struct type macro_type;
   type_init(&macro_type, "Macro");
   macro_type.methods.dump = macro_dump;
@@ -1263,18 +1311,22 @@ int main () {
 	    2, (struct func_arg[]){arg("x", &vm.int_type), arg("y", &vm.int_type)},
 	    1, (struct type *[]){&vm.int_type},
 	    add_body);
-  bind_init(&vm, "+", &func_type)->as_func = &add_func;
+  bind_init(&vm, "+", &vm.func_type)->as_func = &add_func;
 
   struct func debug_func;
   func_init(&debug_func, "debug",
 	    0, (struct func_arg[]){},
 	    1, (struct type *[]){&vm.bool_type},
 	    debug_body);
-  bind_init(&vm, "debug", &func_type)->as_func = &debug_func;
+  bind_init(&vm, "debug", &vm.func_type)->as_func = &debug_func;
 
   struct macro equal_macro;
   macro_init(&equal_macro, "=", 2, equal_body);
   bind_init(&vm, "=", &macro_type)->as_macro = &equal_macro;
+
+  struct macro func_macro;
+  macro_init(&func_macro, "func", 4, func_body);
+  bind_init(&vm, "func", &macro_type)->as_macro = &func_macro;
 
   struct macro if_macro;
   macro_init(&if_macro, "if", 3, if_body);
@@ -1289,7 +1341,7 @@ int main () {
 	    2, (struct func_arg[]){arg("x", &vm.int_type), arg("y", &vm.int_type)},
 	    1, (struct type *[]){&vm.int_type},
 	    sub_body);
-  bind_init(&vm, "-", &func_type)->as_func = &sub_func;
+  bind_init(&vm, "-", &vm.func_type)->as_func = &sub_func;
 
   struct pos pos;
   pos_init(&pos, "repl", 0, 0);

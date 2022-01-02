@@ -1,8 +1,8 @@
 * add func macro
-** add func_emit
-*** push frame in body
-** push lambda if name missing
-* fibrec
+** move func args in __func_body
+** move func rets in RET: eval
+** fibrec
+** readme
 * qdd bench op
 * move add/sub_func into vm
 ** add compile()
@@ -10,19 +10,18 @@
 ** replace push/call add_func with inc op
 ** replace push/call sub_func with dec op
 * fibtail
-* add bool func_applicable(func, vm)
+* typecheck args in __func_body
+* typecheck rets in RET: eval
 ** add call flags enum
 *** CHECK/TAIL/DROP
 *** add flags field to op_call struct
 *** pass flags to func body
-* track forms in vm pool
-** add alloc/free_form(vm,)
 * add test op
-* add func decls to header
+
+func foo () () 42 foo;
 
 func fibrec (n Int) (Int)
   if < n 2 n + fibrec - n 1 fibrec - n 2;
 
 func fibtail (n Int a Int b Int) (Int)
   if = n 0 a if = n 1 b fibtail - n 1 b + a b;
-  
