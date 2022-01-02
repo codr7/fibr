@@ -1,6 +1,7 @@
 * finish func
 ** add func macro
 *** add func_emit
+**** push frame in body
 * finish read_group
 * fibrec
 * fibtail

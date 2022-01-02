@@ -19,7 +19,7 @@ typedef int32_t int_t;
 typedef uint16_t nrefs_t;
 typedef int16_t reg_t;
 
-const uint8_t VERSION = 3;
+const uint8_t VERSION = 4;
 
 const uint8_t MAX_ENV_SIZE = 64;
 const uint16_t MAX_ERROR_LENGTH = 1024;
@@ -172,12 +172,16 @@ struct op_push {
   struct val val;
 };
 
+struct op_ret {
+  struct func *func;
+};
+
 struct op_store {
   reg_t reg;
 };
 
 enum op_code {
-  OP_BRANCH, OP_CALL, OP_DROP, OP_EQUAL, OP_JUMP, OP_LOAD, OP_PUSH, OP_STORE,
+  OP_BRANCH, OP_CALL, OP_DROP, OP_EQUAL, OP_JUMP, OP_LOAD, OP_PUSH, OP_RET, OP_STORE,
   //---STOP---
   OP_STOP};
 
@@ -193,6 +197,7 @@ struct op {
     struct op_jump as_jump;
     struct op_load as_load;
     struct op_push as_push;
+    struct op_ret as_ret;
     struct op_store as_store;
   };
 };

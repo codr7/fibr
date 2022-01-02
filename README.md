@@ -13,9 +13,9 @@ $ cd build
 $ cmake ..
 $ make
 $ rlwrap ./fibr
-fibr 3
+fibr 4
 
-42;
++ 35 7;
 [42]
 ```
 

@@ -192,6 +192,9 @@ struct op *op_init(struct op *self, enum op_code code, struct form *form) {
   case OP_LOAD:
     self->as_load.reg = -1;
     break;
+  case OP_RET:
+    self->as_ret.func = NULL;
+    break;
   case OP_STORE:
     self->as_store.reg = -1;
     break;
@@ -230,6 +233,10 @@ void op_dump(struct op *self, FILE *out) {
   case OP_PUSH:
     fputs("PUSH ", out);
     val_dump(&self->as_push.val, out);
+    break;
+  case OP_RET:
+    fprintf(out, "RET ");
+    func_dump(self->as_ret.func, out);
     break;
   case OP_STORE:
     fprintf(out, "STORE %" PRId16, self->as_store.reg);
@@ -369,7 +376,13 @@ struct state *peek_state(struct vm *vm) {
   return vm->states+vm->state_count-1;
 }
 
+struct state *pop_state(struct vm *vm) {
+  assert(vm->state_count);
+  return vm->states + --vm->state_count;
+}
+
 struct frame *push_frame(struct vm *vm, struct func *func, struct op *ret_pc) {
+  push_state(vm);
   assert(vm->frame_count < MAX_FRAME_COUNT);
   return frame_init(vm->frames+vm->frame_count++, func, ret_pc);
 }
@@ -381,6 +394,7 @@ struct frame *peek_frame(struct vm *vm) {
 
 struct frame *pop_frame(struct vm *vm) {
   assert(vm->frame_count);
+  pop_state(vm);
   return vm->frames + --vm->frame_count;
 }
 
@@ -445,7 +459,7 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   
 enum eval_result eval(struct vm *vm, struct op *start_pc) {
   static const void* dispatch[] = {
-    &&BRANCH, &&CALL, &&DROP, &&EQUAL, &&JUMP, &&LOAD, &&PUSH, &&STORE,
+    &&BRANCH, &&CALL, &&DROP, &&EQUAL, &&JUMP, &&LOAD, &&PUSH, &&RET, &&STORE,
     //---STOP---
     &&STOP};
 
@@ -498,6 +512,11 @@ enum eval_result eval(struct vm *vm, struct op *start_pc) {
     DISPATCH(op+1);
   }
 
+ RET: {
+    struct frame *f = pop_frame(vm);
+    DISPATCH(f->ret_pc);
+  }
+  
  STORE: {
     *push(vm) = *reg(vm, op->as_store.reg);
     DISPATCH(op+1);    
@@ -726,6 +745,12 @@ void func_val_dump(struct val *val, FILE *out) {
 }
 
 enum emit_result func_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
+  for (uint8_t i = 0; i < val->as_func->nargs; i++) {
+    struct form *f = baseof(ls_delete(in->next), struct form, ls);
+    enum emit_result res = form_emit(f, in, vm);
+    if (res != EMIT_OK) { return res; }
+  }
+       
   emit(vm, OP_CALL, form)->as_call.func = val->as_func;
   return EMIT_OK;
 }
@@ -752,8 +777,14 @@ struct val *macro_literal(struct val *val) {
   return NULL;
 }
 
+struct op *add_body(struct func *self, struct op *ret_pc, struct vm *vm) {
+  struct val y = *pop(vm);
+  struct val *x = peek(vm);
+  x->as_int += y.as_int;
+  return ret_pc;
+}
+
 struct op *debug_body(struct func *self, struct op *ret_pc, struct vm *vm) {
-  printf("DEBUG: %d\n", vm->debug);
   vm->debug = !vm->debug;
   push_init(vm, &vm->bool_type)->as_bool = vm->debug;
   return ret_pc;
@@ -805,6 +836,13 @@ enum emit_result if_body(struct macro *self, struct form *form, struct ls *in, s
   return EMIT_OK;
 }
 
+struct op *sub_body(struct func *self, struct op *ret_pc, struct vm *vm) {
+  struct val y = *pop(vm);
+  struct val *x = peek(vm);
+  x->as_int -= y.as_int;
+  return ret_pc;
+}
+
 int main () {
   printf("fibr %d\n\n", VERSION);
   
@@ -825,8 +863,17 @@ int main () {
   macro_type.methods.literal = macro_literal;
   bind_init(&vm, "Macro", &vm.meta_type)->as_meta = &macro_type;
   
+  struct func add_func;
+  func_init(&add_func, "+",
+	    2, (struct func_arg[]){arg("x", &vm.int_type), arg("y", &vm.int_type)},
+	    1, (struct type *[]){&vm.int_type}, add_body);
+  bind_init(&vm, "+", &func_type)->as_func = &add_func;
+
   struct func debug_func;
-  func_init(&debug_func, "debug", 0, (struct func_arg[]){}, 1, (struct type *[]){}, debug_body);
+  func_init(&debug_func, "debug",
+	    0, (struct func_arg[]){},
+	    1, (struct type *[]){&vm.bool_type},
+	    debug_body);
   bind_init(&vm, "debug", &func_type)->as_func = &debug_func;
 
   struct macro equal_macro;
@@ -836,6 +883,12 @@ int main () {
   struct macro if_macro;
   macro_init(&if_macro, "if", 3, if_body);
   bind_init(&vm, "if", &macro_type)->as_macro = &if_macro;
+
+  struct func sub_func;
+  func_init(&sub_func, "-",
+	    2, (struct func_arg[]){arg("x", &vm.int_type), arg("y", &vm.int_type)},
+	    1, (struct type *[]){&vm.int_type}, sub_body);
+  bind_init(&vm, "-", &func_type)->as_func = &sub_func;
 
   struct pos pos;
   pos_init(&pos, "repl", 0, 0);
