@@ -1,9 +1,9 @@
-* finish read_group
 * add func macro
 ** add func_emit
 *** push frame in body
 ** push lambda if name missing
 * fibrec
+* qdd bench op
 * fibtail
 * add bool func_applicable(func, vm)
 ** add call flags enum

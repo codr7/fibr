@@ -9,16 +9,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BASEOF(p, t, m) ({			\
-      uint8_t *_p = (uint8_t *)(p);		\
-      _p ? ((t *)(_p - offsetof(t, m))) : NULL;	\
-    })
-
-typedef int32_t int_t;
-typedef uint16_t nrefs_t;
-typedef int16_t reg_t;
-
 const uint8_t VERSION = 5;
+
+typedef int16_t reg_t;
 
 const uint8_t MAX_ENV_SIZE = 64;
 const uint16_t MAX_ERROR_LENGTH = 1024;
@@ -33,9 +26,17 @@ const uint8_t MAX_SCOPE_COUNT = 8;
 const uint8_t MAX_STACK_SIZE = 64;
 const uint8_t MAX_STATE_COUNT = 64;
 
+typedef int32_t int_t;
+typedef uint16_t nrefs_t;
+
 enum emit_result {EMIT_OK, EMIT_ERROR}; 
 enum eval_result {EVAL_OK, EVAL_ERROR};
 enum read_result {READ_OK, READ_NULL, READ_ERROR};
+
+#define BASEOF(p, t, m) ({			\
+      uint8_t *_p = (uint8_t *)(p);		\
+      _p ? ((t *)(_p - offsetof(t, m))) : NULL;	\
+    })
 
 /*** Intrusive double-linked lists
      A trivial intrusive implementation of double-linked lists.
@@ -217,59 +218,6 @@ struct val *env_get(struct env *self, const char *name) {
   return &BASEOF(found, struct env_item, order)->val;
 }
 
-/*** Forms ***
-     Code is read as forms, which are then emitted as operations.
-     Each form carries its source position.
-***/
-
-struct form_id {
-  char name[MAX_NAME_LENGTH];
-};
-
-struct form_literal {
-  struct val val;
-};
-
-enum form_type {FORM_ID, FORM_LITERAL, FORM_SEMI};
-
-struct form {
-  struct ls ls;
-  enum form_type type;
-  struct pos pos;
-  nrefs_t nrefs;
-
-  union {
-    struct form_id as_id;
-    struct form_literal as_literal;
-  };
-};
-
-struct func;
-
-typedef struct op *(*func_body_t)(struct func *self, struct op *ret_pc, struct vm *vm);
-
-struct func_arg {
-  char name[MAX_NAME_LENGTH];
-  struct type *type;
-};
-
-struct func {
-  char name[MAX_NAME_LENGTH];
-  struct func_arg args[MAX_FUNC_ARG_COUNT];
-  uint8_t nargs;
-  struct type *rets[MAX_FUNC_RET_COUNT];
-  uint8_t nrets;
-  func_body_t body;
-};
-
-typedef enum emit_result (*macro_body_t)(struct macro *self, struct form *form, struct ls *in, struct vm *vm);
-
-struct macro {
-  char name[MAX_NAME_LENGTH];
-  uint8_t nargs;
-  macro_body_t body;
-};
-
 /*** Operations ***
      Operations are what the virtual machine evaluates, the end product of the translation, the most primitive kind of action.
 
@@ -430,6 +378,175 @@ void op_dump(struct op *self, FILE *out) {
   }
 }
 
+/*** Forms ***
+     Code is read as forms, which are then emitted as operations.
+     Each form carries its source position.
+***/
+
+struct form_group {
+  struct ls items;
+};
+
+struct form_id {
+  char name[MAX_NAME_LENGTH];
+};
+
+struct form_literal {
+  struct val val;
+};
+
+enum form_type {FORM_GROUP, FORM_ID, FORM_LITERAL, FORM_SEMI};
+
+struct form {
+  struct ls ls;
+  enum form_type type;
+  struct pos pos;
+  nrefs_t nrefs;
+
+  union {
+    struct form_group as_group;
+    struct form_id as_id;
+    struct form_literal as_literal;
+  };
+};
+
+struct op *emit(struct vm *vm, enum op_code code, struct form *form);
+
+enum emit_result default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
+  emit(vm, OP_PUSH, form)->as_push.val = *val;
+  return EMIT_OK;
+}
+
+void error(struct vm *vm, struct pos pos, const char *fmt, ...);
+struct val *find(struct vm *vm, const char *name);
+enum emit_result val_emit(struct val *self, struct form *form, struct ls *in, struct vm *vm);
+
+enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
+  switch (self->type) {
+  case FORM_GROUP: {
+    struct ls *items = &self->as_group.items;
+    
+    for (struct ls *it = items->next; it != items; it = items->next) {
+      ls_delete(it);
+      struct form *f = BASEOF(it, struct form, ls);
+      enum emit_result res = form_emit(f, items, vm);
+      if (res != EMIT_OK) { return res; }
+    }
+
+    return EMIT_OK;
+  }
+    
+  case FORM_ID: {
+    const char *name = self->as_id.name;
+    uint8_t drop_count = 0;
+    
+    for (const char *c = name; *c; c++, drop_count++) {
+      if (*c != 'd') {
+	drop_count = 0;
+	break;
+      }
+    }
+
+    if (drop_count) {
+      emit(vm, OP_DROP, self)->as_drop.count = drop_count;
+      return EMIT_OK;
+    }
+    
+    struct val *v = find(vm, name);
+
+    if (!v) {
+      error(vm, self->pos, "Unknown id: %s", name);
+      return EMIT_ERROR;
+    }
+    
+    return val_emit(v, self, in, vm);
+  }
+    
+  case FORM_LITERAL:
+    emit(vm, OP_PUSH, self)->as_push.val = self->as_literal.val;
+    return EMIT_OK;
+  case FORM_SEMI:
+    error(vm, self->pos, "Semi emit");
+    break;
+  }
+  
+  return EMIT_ERROR;
+}
+
+enum emit_result emit_forms(struct vm *vm, struct ls *in) {
+  while (!ls_null(in)) {
+    struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
+    enum emit_result fr = form_emit(f, in, vm);
+    if (fr != EMIT_OK) { return fr; }
+  }
+
+  return EMIT_OK;
+}
+
+/*** Macros
+ ***/
+
+typedef enum emit_result (*macro_body_t)(struct macro *self, struct form *form, struct ls *in, struct vm *vm);
+
+struct macro {
+  char name[MAX_NAME_LENGTH];
+  uint8_t nargs;
+  macro_body_t body;
+};
+
+struct macro *macro_init(struct macro *self, const char *name, uint8_t nargs, macro_body_t body) {
+  assert(strlen(name) < MAX_NAME_LENGTH);
+  strcpy(self->name, name);
+  self->nargs = nargs;
+  self->body = body;
+  return self;
+}
+
+/*** Functions
+ ***/
+
+typedef struct op *(*func_body_t)(struct func *self, struct op *ret_pc, struct vm *vm);
+
+struct func_arg {
+  char name[MAX_NAME_LENGTH];
+  struct type *type;
+};
+
+struct func {
+  char name[MAX_NAME_LENGTH];
+  struct func_arg args[MAX_FUNC_ARG_COUNT];
+  uint8_t nargs;
+  struct type *rets[MAX_FUNC_RET_COUNT];
+  uint8_t nrets;
+  func_body_t body;
+};
+
+struct func_arg arg(const char *name, struct type *type) {
+  struct func_arg arg;
+  strcpy(arg.name, name);
+  arg.type = type;
+  return arg;
+}
+  
+struct func *func_init(struct func *self,
+		       const char *name,
+		       uint8_t nargs, struct func_arg args[],
+		       uint8_t nrets, struct type *rets[],
+		       func_body_t body) {
+  assert(strlen(name) < MAX_NAME_LENGTH);
+  strcpy(self->name, name);
+  self->nargs = nargs;
+  memcpy(self->args, args, nargs*sizeof(struct func_arg));
+  self->nrets = nrets;
+  memcpy(self->rets, rets, nrets*sizeof(struct type *));
+  self->body = body;
+  return self;
+}
+
+void func_dump(struct func *self, FILE *out) {
+  fputs(self->name, out);
+}
+
 struct scope {
   struct scope *parent_scope;
   struct env bindings;
@@ -501,6 +618,19 @@ struct form *form_init(struct form *self, enum form_type type, struct pos pos, s
   self->pos = pos;
   self->nrefs = 1;
   if (out) { ls_insert(out, &self->ls); }
+
+  switch (type) {
+  case FORM_GROUP:
+    ls_init(&self->as_group.items);
+    break;
+  case FORM_LITERAL:
+    self->as_literal.val.type = NULL;
+    break;
+  case FORM_ID:
+  case FORM_SEMI:
+    break;
+  }
+
   return self;
 }
 
@@ -520,8 +650,6 @@ bool form_deref(struct form *self) {
   return true;
 }
 
-struct val *find(struct vm *vm, const char *name);
-
 struct val *form_val(struct form *self, struct vm *vm) {
   switch (self->type) {
   case FORM_ID: {
@@ -533,6 +661,7 @@ struct val *form_val(struct form *self, struct vm *vm) {
   case FORM_LITERAL:
     return &self->as_literal.val;
 
+  case FORM_GROUP:
   case FORM_SEMI:
     break;
   }
@@ -822,93 +951,10 @@ enum eval_result eval(struct vm *vm, struct op *start_pc) {
   return EVAL_OK;
 }
 
-enum emit_result default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
-  emit(vm, OP_PUSH, form)->as_push.val = *val;
-  return EMIT_OK;
-}
-
-enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
-  switch (self->type) {
-  case FORM_ID: {
-    const char *name = self->as_id.name;
-    uint8_t drop_count = 0;
-    
-    for (const char *c = name; *c; c++, drop_count++) {
-      if (*c != 'd') {
-	drop_count = 0;
-	break;
-      }
-    }
-
-    if (drop_count) {
-      emit(vm, OP_DROP, self)->as_drop.count = drop_count;
-      return EMIT_OK;
-    }
-    
-    struct val *v = find(vm, name);
-
-    if (!v) {
-      error(vm, self->pos, "Unknown id: %s", name);
-      return EMIT_ERROR;
-    }
-    
-    return val_emit(v, self, in, vm);
-  }
-    
-  case FORM_LITERAL:
-    emit(vm, OP_PUSH, self)->as_push.val = self->as_literal.val;
-    return EMIT_OK;
-  case FORM_SEMI:
-    error(vm, self->pos, "Semi emit");
-    break;
-  }
-  
-  return EMIT_ERROR;
-}
-
-enum emit_result emit_forms(struct vm *vm, struct ls *in) {
-  while (!ls_null(in)) {
-    struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
-    enum emit_result fr = form_emit(f, in, vm);
-    if (fr != EMIT_OK) { return fr; }
-  }
-
-  return EMIT_OK;
-}
-
-struct func_arg arg(const char *name, struct type *type) {
-  struct func_arg arg;
-  strcpy(arg.name, name);
-  arg.type = type;
-  return arg;
-}
-  
-struct func *func_init(struct func *self,
-		       const char *name,
-		       uint8_t nargs, struct func_arg args[],
-		       uint8_t nrets, struct type *rets[],
-		       func_body_t body) {
-  assert(strlen(name) < MAX_NAME_LENGTH);
-  strcpy(self->name, name);
-  self->nargs = nargs;
-  memcpy(self->args, args, nargs*sizeof(struct func_arg));
-  self->nrets = nrets;
-  memcpy(self->rets, rets, nrets*sizeof(struct type *));
-  self->body = body;
-  return self;
-}
-
-void func_dump(struct func *self, FILE *out) {
-  fputs(self->name, out);
-}
-
-struct macro *macro_init(struct macro *self, const char *name, uint8_t nargs, macro_body_t body) {
-  assert(strlen(name) < MAX_NAME_LENGTH);
-  strcpy(self->name, name);
-  self->nargs = nargs;
-  self->body = body;
-  return self;
-}
+/*** Readers
+     Readers transform code into forms.
+     New readers must be added in the right order to read_form().
+ ***/
 
 enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
@@ -935,7 +981,46 @@ enum read_result read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *
 }
 
 enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
-  return READ_NULL;
+  struct pos fpos = *pos;  
+  char c = fgetc(in);
+  
+  if (c != '(') {
+    ungetc(c, in);
+    return READ_NULL;
+  }
+
+  pos->column++;
+  struct form *f = new_form(FORM_GROUP, fpos, out);
+
+  for (;;) {
+    c = fgetc(in);
+
+    if (!c || c == ')') {
+      break;
+    }
+
+    ungetc(c, in);
+
+    enum read_result res = read_form(vm, pos, in, &f->as_group.items);
+
+    switch (res) {
+    case READ_NULL:
+      c = 0;
+      break;
+    case READ_ERROR:
+      return res;
+    case READ_OK:
+      break;
+    }
+  }
+
+  if (!c) {
+    error(vm, fpos, "Open group");
+    return READ_ERROR;
+  }
+
+  pos->column++;
+  return READ_OK;
 }
 
 enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
