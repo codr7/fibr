@@ -1,3 +1,7 @@
+* convert env to use ls for order
+** static array of nodes
+** ls for used/free
+** remove hash
 * finish read_group
 * add func macro
 ** add func_emit
