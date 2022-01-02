@@ -71,22 +71,29 @@ struct ls *ls_delete(struct ls *self) {
 #define UNIQUE(x)				\
   CONCAT(x, __COUNTER__)
 
-#define _LS_DO(ls, i, _next)				\
-  for (struct ls *i = (ls)->next, *_next = i->next;	\
-       i != (ls);					\
+#define _LS_DO(in, i, _next)				\
+  for (struct ls *i = (in)->next, *_next = i->next;	\
+       i != (in);					\
        i = _next, _next = i->next)
 
-#define LS_DO(ls, i)				\
-  _LS_DO(ls, i, UNIQUE(next))
+#define LS_DO(in, i)				\
+  _LS_DO(in, i, UNIQUE(next))
 
 struct pos {
   char source[MAX_POS_SOURCE_LENGTH];
   uint16_t line, column;
 };
 
+struct pos *pos_init(struct pos *self, const char *source, int line, int column) {
+  strcpy(self->source, source);
+  self->line = line;
+  self->column = column;
+  return self;
+}
+
 /*** Types ***
-    Types define behavior for values and are used for type-checking at compile- and runtime.
- ***/
+     Types define behavior for values and are used for type-checking at compile- and runtime.
+***/
 
 struct form;
 struct val;
@@ -152,15 +159,68 @@ struct val *val_init(struct val *self, struct type *type) {
   return self;
 }
 
+/*** Environments ***
+     Environments are ordered sets of identifiers bound to values.
+     Each compile time scope carries a separate environment.
+***/
+
 struct env_item {
   char name[MAX_NAME_LENGTH];
   struct val val;
+  struct ls order;
 };
 
 struct env {
   struct env_item items[MAX_ENV_SIZE];
   uint8_t item_count;
+  struct ls order;
 };
+
+struct env *env_init(struct env *self) {
+  memset(self->items, 0, sizeof(self->items));
+  self->item_count = 0;
+  ls_init(&self->order);
+  return self;
+}
+
+struct ls *env_find(struct env *self, const char *name) {
+  LS_DO(&self->order, it) {
+    if (strcmp(name, BASEOF(it, struct env_item, order)->name) <= 0) {
+      return it;
+    }
+  }
+
+  return &self->order;
+}
+
+struct val *env_set(struct env *self, const char *name) {
+  struct ls *found = env_find(self, name);
+
+  if (found != &self->order) {
+    struct env_item *it = BASEOF(found, struct env_item, order);
+
+    if (strcmp(it->name, name) == 0) {
+      return NULL;
+    }
+  }
+ 
+  struct env_item *it = self->items + self->item_count++;
+  assert(it < self->items+MAX_ENV_SIZE);
+  strcpy(it->name, name);
+  ls_insert(found, &it->order);
+  return &it->val;
+}
+
+struct val *env_get(struct env *self, const char *name) {
+  struct ls *found = env_find(self, name);
+  assert(found != &self->order);
+  return &BASEOF(found, struct env_item, order)->val;
+}
+
+/*** Forms ***
+     Code is read as forms, which are then emitted as operations.
+     Each form carries its source position.
+***/
 
 struct form_id {
   char name[MAX_NAME_LENGTH];
@@ -436,49 +496,6 @@ struct val *val_literal(struct val *self) {
   return self->type->methods.literal(self);
 }
 
-struct env *env_init(struct env *self) {
-  memset(self->items, 0, sizeof(self->items));
-  self->item_count = 0;
-  return self;
-}
-
-uint8_t hash(const char *name) {
-  uint8_t h = 0;
-  for (const char *c = name; *c; h += *c, c++);
-  return h % MAX_ENV_SIZE;
-}
-
-struct val *env_set(struct env *self, const char *name) {
-  struct env_item *it = NULL;
-  
-  for (it = self->items+hash(name);
-       it < self->items+MAX_ENV_SIZE && it->val.type;
-       it++);
-
-  assert(it < self->items+MAX_ENV_SIZE);
-  strcpy(it->name, name);
-  return &it->val;
-}
-
-struct val *env_get(struct env *self, const char *name) {
-  for (struct env_item *it = self->items+hash(name);
-       it < self->items+MAX_ENV_SIZE && it->val.type;
-       it++) {
-    if (strcmp(it->name, name) == 0) {
-      return &it->val;
-    }
-  }
-
-  return NULL;
-}
-
-struct pos *pos_init(struct pos *self, const char *source, int line, int column) {
-  strcpy(self->source, source);
-  self->line = line;
-  self->column = column;
-  return self;
-}
-
 struct form *form_init(struct form *self, enum form_type type, struct pos pos, struct ls *out) {
   self->type = type;
   self->pos = pos;
@@ -627,9 +644,7 @@ struct scope *peek_scope(struct vm *vm) {
 }
 
 struct val *bind(struct vm *vm, const char *name) {
-  struct scope *scope = peek_scope(vm);
-  if (env_get(&scope->bindings, name)) { return NULL; }
-  return env_set(&scope->bindings, name);
+  return env_set(&peek_scope(vm)->bindings, name);
 }
 
 struct val *bind_init(struct vm *vm, const char *name, struct type *type) {
