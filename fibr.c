@@ -35,7 +35,7 @@ typedef int32_t int_t;
 typedef uint16_t nrefs_t;
 typedef int16_t reg_t;
 
-const uint8_t VERSION = 4;
+const uint8_t VERSION = 5;
 
 const uint8_t MAX_ENV_SIZE = 64;
 const uint16_t MAX_ERROR_LENGTH = 1024;

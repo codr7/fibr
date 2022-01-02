@@ -1,8 +1,8 @@
+* finish read_group
 * add func macro
 ** add func_emit
 *** push frame in body
 ** push lambda if name missing
-* finish read_group
 * fibrec
 * fibtail
 * add bool func_applicable(func, vm)
