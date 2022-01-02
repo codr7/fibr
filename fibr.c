@@ -37,8 +37,8 @@ enum emit_result {EMIT_OK, EMIT_ERROR};
 enum eval_result {EVAL_OK, EVAL_ERROR};
 enum read_result {READ_OK, READ_NULL, READ_ERROR};
 
-/*** Intrusive double linked list
-     A trivial implementation of intrusive double linked lists.
+/*** Intrusive double-linked lists
+     A trivial intrusive implementation of double-linked lists.
 ***/
 
 struct ls {
@@ -84,13 +84,13 @@ struct pos {
   uint16_t line, column;
 };
 
-struct form;
-struct val;
-struct vm;
-
 /*** Types ***
     Types define behavior for values and are used for type-checking at compile- and runtime.
  ***/
+
+struct form;
+struct val;
+struct vm;
 
 struct type {
   char name[MAX_NAME_LENGTH];
