@@ -401,7 +401,6 @@ struct form {
   struct ls ls;
   enum form_type type;
   struct pos pos;
-  nrefs_t nrefs;
 
   union {
     struct form_group as_group;
@@ -409,6 +408,52 @@ struct form {
     struct form_lit as_lit;
   };
 };
+
+struct form *form_init(struct form *self, enum form_type type, struct pos pos, struct ls *out) {
+  self->type = type;
+  self->pos = pos;
+  if (out) { ls_insert(out, &self->ls); }
+
+  switch (type) {
+  case FORM_GROUP:
+    ls_init(&self->as_group.items);
+    break;
+  case FORM_LIT:
+    self->as_lit.val.type = NULL;
+    break;
+  case FORM_ID:
+  case FORM_SEMI:
+    break;
+  }
+
+  return self;
+}
+
+struct form *new_form(enum form_type type, struct pos pos, struct ls *out) {
+  return form_init(malloc(sizeof(struct form)), type, pos, out);
+}
+
+struct val *find(struct vm *vm, const char *name);
+struct val *val_lit(struct val *self);
+
+struct val *form_val(struct form *self, struct vm *vm) {
+  switch (self->type) {
+  case FORM_ID: {
+    struct val *v = find(vm, self->as_id.name);
+    if (!v) { break; }
+    return val_lit(v);
+  }
+    
+  case FORM_LIT:
+    return &self->as_lit.val;
+
+  case FORM_GROUP:
+  case FORM_SEMI:
+    break;
+  }
+
+  return NULL;
+}
 
 struct op *emit(struct vm *vm, enum op_code code, struct form *form);
 
@@ -418,7 +463,6 @@ enum emit_res default_emit(struct val *val, struct form *form, struct ls *in, st
 }
 
 void error(struct vm *vm, struct pos pos, const char *fmt, ...);
-struct val *find(struct vm *vm, const char *name);
 enum emit_res val_emit(struct val *self, struct form *form, struct ls *in, struct vm *vm);
 
 enum emit_res form_emit(struct form *self, struct ls *in, struct vm *vm) {
@@ -718,62 +762,6 @@ bool val_true(struct val *self) {
 struct val *val_lit(struct val *self) {
   assert(self->type->methods.lit);
   return self->type->methods.lit(self);
-}
-
-struct form *form_init(struct form *self, enum form_type type, struct pos pos, struct ls *out) {
-  self->type = type;
-  self->pos = pos;
-  self->nrefs = 1;
-  if (out) { ls_insert(out, &self->ls); }
-
-  switch (type) {
-  case FORM_GROUP:
-    ls_init(&self->as_group.items);
-    break;
-  case FORM_LIT:
-    self->as_lit.val.type = NULL;
-    break;
-  case FORM_ID:
-  case FORM_SEMI:
-    break;
-  }
-
-  return self;
-}
-
-struct form *new_form(enum form_type type, struct pos pos, struct ls *out) {
-  return form_init(malloc(sizeof(struct form)), type, pos, out);
-}
-
-struct form *form_ref(struct form *self) {
-  self->nrefs++;
-  return self;
-}
-
-bool form_deref(struct form *self) {
-  assert(self->nrefs);
-  if (--self->nrefs) { return false; }
-  free(self);
-  return true;
-}
-
-struct val *form_val(struct form *self, struct vm *vm) {
-  switch (self->type) {
-  case FORM_ID: {
-    struct val *v = find(vm, self->as_id.name);
-    if (!v) { break; }
-    return val_lit(v);
-  }
-    
-  case FORM_LIT:
-    return &self->as_lit.val;
-
-  case FORM_GROUP:
-  case FORM_SEMI:
-    break;
-  }
-
-  return NULL;
 }
 
 struct state *state_init(struct state *self) {
