@@ -63,6 +63,22 @@ struct pos {
   uint16_t line, column;
 };
 
+struct form;
+struct val;
+struct vm;
+
+struct type {
+  char name[MAX_NAME_LENGTH];
+  
+  struct { 
+    void (*dump)(struct val *val, FILE *out);
+    enum emit_result (*emit)(struct val *val, struct form *form, struct ls *in, struct vm *vm);
+    bool (*equal)(struct val *x, struct val *y);
+    bool (*is_true)(struct val *val);
+    struct val *(*literal)(struct val *val);
+  } methods;
+};
+
 /*** Values ***
 Every value carries a type, each type has its own data accessor in the union.
 Methods are implemented in the type.
@@ -120,20 +136,6 @@ struct form {
     struct form_id as_id;
     struct form_literal as_literal;
   };
-};
-
-struct vm;
-
-struct type {
-  char name[MAX_NAME_LENGTH];
-  
-  struct { 
-    void (*dump)(struct val *val, FILE *out);
-    enum emit_result (*emit)(struct val *val, struct form *form, struct ls *in, struct vm *vm);
-    bool (*equal)(struct val *x, struct val *y);
-    bool (*is_true)(struct val *val);
-    struct val *(*literal)(struct val *val);
-  } methods;
 };
 
 struct func;
@@ -232,6 +234,96 @@ struct op {
   };
 };
 
+struct op *op_init(struct op *self, enum op_code code, struct form *form) {
+  self->code = code;
+  self->form = form;
+
+  switch (code) {
+  case OP_BRANCH:
+    self->as_branch.false_pc = NULL;
+    break;
+  case OP_CALL:
+    self->as_call.func = NULL;
+    break;
+  case OP_DROP:
+    self->as_drop.count = 1;
+    break;
+  case OP_EQUAL:
+    self->as_equal.x.type = self->as_equal.y.type = NULL;
+    break;
+  case OP_JUMP:
+    self->as_jump.pc = NULL;
+    break;
+  case OP_PUSH:
+    self->as_push.val.type = NULL;
+    break;
+  case OP_LOAD:
+    self->as_load.reg = -1;
+    break;
+  case OP_NOP:
+    break;
+  case OP_RET:
+    self->as_ret.func = NULL;
+    break;
+  case OP_STORE:
+    self->as_store.reg = -1;
+    break;
+  default:
+    break;
+  }
+
+  return self;
+}
+
+void func_dump(struct func *self, FILE *out);
+void val_dump(struct val *self, FILE *out);
+
+void op_dump(struct op *self, FILE *out) {
+  switch (self->code) {
+  case OP_BRANCH:
+    fprintf(out, "BRANCH ");
+    op_dump(self->as_branch.false_pc, out);
+    break;
+  case OP_CALL:
+    fprintf(out, "CALL ");
+    func_dump(self->as_call.func, out);
+    break;
+  case OP_DROP:
+    fprintf(out, "DROP %" PRIu8, self->as_drop.count);
+    break;
+  case OP_EQUAL:
+    fprintf(out, "EQUAL ");
+    if (self->as_equal.x.type) { val_dump(&self->as_equal.x, out); }
+    if (self->as_equal.y.type) { val_dump(&self->as_equal.y, out); }
+    break;
+  case OP_JUMP:
+    fprintf(out, "JUMP ");
+    op_dump(self->as_jump.pc, out);
+    break;
+  case OP_LOAD:
+    fprintf(out, "LOAD %" PRId16, self->as_load.reg);
+    break;
+  case OP_NOP:
+    fputs("NOP", out);
+    break;
+  case OP_PUSH:
+    fputs("PUSH ", out);
+    val_dump(&self->as_push.val, out);
+    break;
+  case OP_RET:
+    fprintf(out, "RET ");
+    func_dump(self->as_ret.func, out);
+    break;
+  case OP_STORE:
+    fprintf(out, "STORE %" PRId16, self->as_store.reg);
+    break;
+    //---STOP---
+  case OP_STOP:
+    fputs("STOP", out);
+    break;
+  }
+}
+
 struct scope {
   struct scope *parent_scope;
   struct env bindings;
@@ -270,8 +362,6 @@ struct vm {
 
 struct val *bind_init(struct vm *vm, const char *name, struct type *type);
 struct scope *push_scope(struct vm *vm);
-
-void func_dump(struct func *self, FILE *out);
 
 typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
@@ -423,93 +513,6 @@ struct val *form_val(struct form *self, struct vm *vm) {
   }
 
   return NULL;
-}
-
-struct op *op_init(struct op *self, enum op_code code, struct form *form) {
-  self->code = code;
-  self->form = form;
-
-  switch (code) {
-  case OP_BRANCH:
-    self->as_branch.false_pc = NULL;
-    break;
-  case OP_CALL:
-    self->as_call.func = NULL;
-    break;
-  case OP_DROP:
-    self->as_drop.count = 1;
-    break;
-  case OP_EQUAL:
-    self->as_equal.x.type = self->as_equal.y.type = NULL;
-    break;
-  case OP_JUMP:
-    self->as_jump.pc = NULL;
-    break;
-  case OP_PUSH:
-    self->as_push.val.type = NULL;
-    break;
-  case OP_LOAD:
-    self->as_load.reg = -1;
-    break;
-  case OP_NOP:
-    break;
-  case OP_RET:
-    self->as_ret.func = NULL;
-    break;
-  case OP_STORE:
-    self->as_store.reg = -1;
-    break;
-  default:
-    break;
-  }
-
-  return self;
-}
-
-void op_dump(struct op *self, FILE *out) {
-  switch (self->code) {
-  case OP_BRANCH:
-    fprintf(out, "BRANCH ");
-    op_dump(self->as_branch.false_pc, out);
-    break;
-  case OP_CALL:
-    fprintf(out, "CALL ");
-    func_dump(self->as_call.func, out);
-    break;
-  case OP_DROP:
-    fprintf(out, "DROP %" PRIu8, self->as_drop.count);
-    break;
-  case OP_EQUAL:
-    fprintf(out, "EQUAL ");
-    if (self->as_equal.x.type) { val_dump(&self->as_equal.x, out); }
-    if (self->as_equal.y.type) { val_dump(&self->as_equal.y, out); }
-    break;
-  case OP_JUMP:
-    fprintf(out, "JUMP ");
-    op_dump(self->as_jump.pc, out);
-    break;
-  case OP_LOAD:
-    fprintf(out, "LOAD %" PRId16, self->as_load.reg);
-    break;
-  case OP_NOP:
-    fputs("NOP", out);
-    break;
-  case OP_PUSH:
-    fputs("PUSH ", out);
-    val_dump(&self->as_push.val, out);
-    break;
-  case OP_RET:
-    fprintf(out, "RET ");
-    func_dump(self->as_ret.func, out);
-    break;
-  case OP_STORE:
-    fprintf(out, "STORE %" PRId16, self->as_store.reg);
-    break;
-    //---STOP---
-  case OP_STOP:
-    fputs("STOP", out);
-    break;
-  }
 }
 
 struct state *state_init(struct state *self) {
