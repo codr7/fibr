@@ -14,23 +14,6 @@
       _p ? ((t *)(_p - offsetof(t, m))) : NULL;	\
     })
 
-#define _CONCAT(x, y)				\
-  x##y
-
-#define CONCAT(x, y)				\
-  _CONCAT(x, y)
-
-#define UNIQUE(x)				\
-  CONCAT(x, __COUNTER__)
-
-#define _LS_DO(ls, i, _next)				\
-  for (struct ls *i = (ls)->next, *_next = i->next;	\
-       i != (ls);					\
-       i = _next, _next = i->next)
-
-#define LS_DO(ls, i)				\
-  _LS_DO(ls, i, UNIQUE(next))
-
 typedef int32_t int_t;
 typedef uint16_t nrefs_t;
 typedef int16_t reg_t;
@@ -50,13 +33,51 @@ const uint8_t MAX_SCOPE_COUNT = 8;
 const uint8_t MAX_STACK_SIZE = 64;
 const uint8_t MAX_STATE_COUNT = 64;
 
+enum emit_result {EMIT_OK, EMIT_ERROR}; 
+enum eval_result {EVAL_OK, EVAL_ERROR};
+enum read_result {READ_OK, READ_NULL, READ_ERROR};
+
+/*** Intrusive double linked list
+     A trivial implementation of intrusive double linked lists.
+***/
+
 struct ls {
   struct ls *prev, *next;
 };
 
-enum emit_result {EMIT_OK, EMIT_ERROR}; 
-enum eval_result {EVAL_OK, EVAL_ERROR};
-enum read_result {READ_OK, READ_NULL, READ_ERROR};
+void ls_init(struct ls *self) { self->prev = self->next = self; }
+
+bool ls_null(const struct ls *self) { return self->prev == self && self->next == self; }
+
+void ls_insert(struct ls *self, struct ls *it) {
+  it->prev = self->prev;
+  self->prev->next = it;
+  it->next = self;
+  self->prev = it;
+}
+
+struct ls *ls_delete(struct ls *self) {
+  self->prev->next = self->next;
+  self->next->prev = self->prev;
+  return self;
+}
+
+#define _CONCAT(x, y)				\
+  x##y
+
+#define CONCAT(x, y)				\
+  _CONCAT(x, y)
+
+#define UNIQUE(x)				\
+  CONCAT(x, __COUNTER__)
+
+#define _LS_DO(ls, i, _next)				\
+  for (struct ls *i = (ls)->next, *_next = i->next;	\
+       i != (ls);					\
+       i = _next, _next = i->next)
+
+#define LS_DO(ls, i)				\
+  _LS_DO(ls, i, UNIQUE(next))
 
 struct pos {
   char source[MAX_POS_SOURCE_LENGTH];
@@ -80,9 +101,9 @@ struct type {
 };
 
 /*** Values ***
-Every value carries a type, each type has its own data accessor in the union.
-Methods are implemented in the type.
- ***/
+     Every value carries a type, each type has its own data accessor in the union.
+     Methods are implemented in the type.
+***/
 
 struct func;
 struct macro;
@@ -165,15 +186,15 @@ struct macro {
 };
 
 /*** Operations ***
-Operations are what the virtual machine evaluates, the end product of the translation, the most primitive kind of action.
+     Operations are what the virtual machine evaluates, the end product of the translation, the most primitive kind of action.
 
-Each type of operation may specify it's own data-members by adding a struct and including it in struct op's union.
+     Each type of operation may specify it's own data-members by adding a struct and including it in struct op's union.
 
-The code is in eval(). 
+     The code is in eval(). 
 
-Please note that the order has to be consistent, and is thus kept alphabetical to simplify verification; 
-the consequences of getting it wrong are potentially undefined. 
-The reason is to support using computed goto in eval().
+     Please note that the order has to be consistent, and is thus kept alphabetical to simplify verification; 
+     the consequences of getting it wrong are potentially undefined. 
+     The reason is to support using computed goto in eval().
 ***/
 
 struct op_branch {
@@ -364,23 +385,6 @@ struct val *bind_init(struct vm *vm, const char *name, struct type *type);
 struct scope *push_scope(struct vm *vm);
 
 typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-
-void ls_init(struct ls *self) { self->prev = self->next = self; }
-
-bool ls_null(const struct ls *self) { return self->prev == self && self->next == self; }
-
-void ls_insert(struct ls *self, struct ls *it) {
-  it->prev = self->prev;
-  self->prev->next = it;
-  it->next = self;
-  self->prev = it;
-}
-
-struct ls *ls_delete(struct ls *self) {
-  self->prev->next = self->next;
-  self->next->prev = self->prev;
-  return self;
-}
 
 enum emit_result default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm);
 
