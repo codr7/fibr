@@ -17,16 +17,6 @@
 *** add flags field to op_call struct
 *** pass flags to func body
 * add test op
-* track forms in vm
-** add MAX_FORM_COUNT
-** add static array/count
-** add new_form
-*** grep malloc
-* track funcs in vm
-** add MAX_FUNC_COUNT
-** add static array/count
-** add new_func
-*** grep malloc
 
 func foo () () 42 foo;
 

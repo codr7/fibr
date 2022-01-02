@@ -13,7 +13,9 @@
 
 #define MAX_ENV_SIZE 64
 #define MAX_ERROR_LENGTH 1024
+#define MAX_FORM_COUNT 512
 #define MAX_FRAME_COUNT 64
+#define MAX_FUNC_COUNT 64
 #define MAX_FUNC_ARG_COUNT 8
 #define MAX_FUNC_RET_COUNT 8
 #define MAX_NAME_LENGTH 64
@@ -432,10 +434,6 @@ struct form *form_init(struct form *self, enum form_type type, struct pos pos, s
   return self;
 }
 
-struct form *new_form(enum form_type type, struct pos pos, struct ls *out) {
-  return form_init(malloc(sizeof(struct form)), type, pos, out);
-}
-
 struct val *find(struct vm *vm, const char *name);
 struct val *val_lit(struct val *self);
 
@@ -631,18 +629,24 @@ struct frame {
 
 struct vm {
   struct type bool_type, func_type, int_type, meta_type;
+
+  struct func funcs[MAX_FUNC_COUNT];
+  uint32_t func_count;
+  
+  struct form forms[MAX_FORM_COUNT];
+  uint32_t form_count;
   
   struct scope scopes[MAX_SCOPE_COUNT];
-  uint8_t scope_count;
+  uint32_t scope_count;
 
   struct op ops[MAX_OP_COUNT];
-  uint16_t op_count;
+  uint32_t op_count;
 
   struct state states[MAX_STATE_COUNT];
-  uint8_t state_count;
+  uint32_t state_count;
 
   struct frame frames[MAX_FRAME_COUNT];
-  uint8_t frame_count;
+  uint32_t frame_count;
 
   char error[MAX_ERROR_LENGTH];
   bool debug;
@@ -704,7 +708,9 @@ struct vm *vm_init(struct vm *self) {
   for (struct scope *s = self->scopes, *ps = NULL; s < self->scopes+MAX_SCOPE_COUNT; ps = s, s++) {
     s->parent_scope = ps;
   }
-  
+
+  self->func_count = 0;
+  self->frame_count = 0;
   self->op_count = 0;
   self->state_count = 0;
   self->frame_count = 0;
@@ -740,7 +746,10 @@ struct vm *vm_init(struct vm *self) {
   return self;
 }
 
-typedef enum read_res(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+struct form *new_form(struct vm *vm, enum form_type type, struct pos pos, struct ls *out) {
+  struct form *self = vm->forms + vm->form_count++;
+  return form_init(self, type, pos, out);
+}
 
 void val_dump(struct val *self, FILE *out) {
   assert(self->type->methods.dump);
@@ -990,6 +999,8 @@ enum eval_res eval(struct vm *vm, struct op *start_pc) {
      New readers must be added in the right order to read_form().
 ***/
 
+typedef enum read_res(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+
 enum read_res read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 enum read_res read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 enum read_res read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
@@ -1024,7 +1035,7 @@ enum read_res read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *ou
   }
 
   pos->column++;
-  struct form *f = new_form(FORM_GROUP, fpos, out);
+  struct form *f = new_form(vm, FORM_GROUP, fpos, out);
 
   for (;;) {
     c = fgetc(in);
@@ -1076,7 +1087,7 @@ enum read_res read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) 
   if (p == name) { return READ_NULL; }
   
   *p = 0;
-  struct form *f = new_form(FORM_ID, fpos, out);
+  struct form *f = new_form(vm, FORM_ID, fpos, out);
   strcpy(f->as_id.name, name);
   return READ_OK;
 }
@@ -1117,7 +1128,7 @@ enum read_res read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out)
   }
 
   if (pos->column == fpos.column) { return READ_NULL; }
-  struct form *f = new_form(FORM_LIT, fpos, out);
+  struct form *f = new_form(vm, FORM_LIT, fpos, out);
   val_init(&f->as_lit.val, &vm->int_type)->as_int = neg ? -v : v;
   return READ_OK;
 }
@@ -1134,7 +1145,7 @@ enum read_res read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out
   }
   
   pos->column++;
-  new_form(FORM_SEMI, fpos, out);
+  new_form(vm, FORM_SEMI, fpos, out);
   return READ_OK;
 }
     
@@ -1238,7 +1249,7 @@ enum emit_res func_body(struct macro *self, struct form *form, struct ls *in, st
   struct type *rets[MAX_FUNC_RET_COUNT];
   uint8_t nrets = 0;
 
-  struct func *func = func_init(malloc(sizeof(struct func)), name, nargs, args, nrets, rets, __func_body);
+  struct func *func = func_init(vm->funcs + vm->func_count++, name, nargs, args, nrets, rets, __func_body);
   struct form *body = BASEOF(ls_del(in->next), struct form, ls);
   enum emit_res res = func_emit(func, body, in, vm);
   if (res != EMIT_OK) { return res; }
