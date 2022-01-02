@@ -88,6 +88,10 @@ struct form;
 struct val;
 struct vm;
 
+/*** Types ***
+    Types define behavior for values and are used for type-checking at compile- and runtime.
+ ***/
+
 struct type {
   char name[MAX_NAME_LENGTH];
   
@@ -99,6 +103,27 @@ struct type {
     struct val *(*literal)(struct val *val);
   } methods;
 };
+
+enum emit_result default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm);
+
+bool default_true(struct val *val) {
+  return true;
+}
+
+struct val *default_literal(struct val *val) {
+  return val;
+}
+
+struct type *type_init(struct type *self, const char *name) {
+  assert(strlen(name) < MAX_NAME_LENGTH);
+  strcpy(self->name, name);
+  self->methods.dump = NULL;
+  self->methods.emit = default_emit;
+  self->methods.equal = NULL;
+  self->methods.is_true = default_true;
+  self->methods.literal = default_literal;
+  return self;
+}
 
 /*** Values ***
      Every value carries a type, each type has its own data accessor in the union.
@@ -385,27 +410,6 @@ struct val *bind_init(struct vm *vm, const char *name, struct type *type);
 struct scope *push_scope(struct vm *vm);
 
 typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-
-enum emit_result default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm);
-
-bool default_true(struct val *val) {
-  return true;
-}
-
-struct val *default_literal(struct val *val) {
-  return val;
-}
-
-struct type *type_init(struct type *self, const char *name) {
-  assert(strlen(name) < MAX_NAME_LENGTH);
-  strcpy(self->name, name);
-  self->methods.dump = NULL;
-  self->methods.emit = default_emit;
-  self->methods.equal = NULL;
-  self->methods.is_true = default_true;
-  self->methods.literal = default_literal;
-  return self;
-}
 
 void val_dump(struct val *self, FILE *out) {
   assert(self->type->methods.dump);
