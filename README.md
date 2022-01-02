@@ -1,7 +1,7 @@
 ## fibr
 
 ### intro
-fibr aims to implement a minimal, reasonably fast, practically useful and hackable interpreter in 1kloc of C.
+fibr aims to implement a minimal, reasonably fast, practically useful and hackable interpreter in C that's capable of calculating the fibonacci sequence recursively and tail-recursively.
 
 ### setup
 fibr requires CMake and a C compiler to build, rlwrap is highly recommended for running the REPL.
