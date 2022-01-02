@@ -4,6 +4,11 @@
 ** push lambda if name missing
 * fibrec
 * qdd bench op
+* move add/sub_func into vm
+** add compile()
+** add inc/dec ops
+** replace push/call add_func with inc op
+** replace push/call sub_func with dec op
 * fibtail
 * add bool func_applicable(func, vm)
 ** add call flags enum

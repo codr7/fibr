@@ -3,7 +3,7 @@
 ### intro
 **fibr** aims to implement a minimal, reasonably fast, practically useful and hackable interpreter in C that's advanced enough to calculate the fibonacci sequence tail-/recursively and easy to extend.
 
-It is very much a work in progress, but any functionality described in this document is supposed to work, please file an issue if you find that's not the case.
+It is very much a work in progress; but any functionality described in this document is supposed to work, please file an issue if you find that's not the case.
 
 ### setup
 **fibr** requires `make` and a C-compiler to build, `rlwrap` is highly recommended for running the REPL.
