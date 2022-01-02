@@ -63,10 +63,14 @@ struct pos {
   uint16_t line, column;
 };
 
+/*** Values ***
+Every value carries a type, each type has its own data accessor in the union.
+Methods are implemented in the type.
+ ***/
+
 struct func;
 struct macro;
 struct type;
-struct vm;
 
 struct val {
   struct type *type;
@@ -80,6 +84,11 @@ struct val {
     reg_t as_reg;
   };
 };
+
+struct val *val_init(struct val *self, struct type *type) {
+  self->type = type;
+  return self;
+}
 
 struct env_item {
   char name[MAX_NAME_LENGTH];
@@ -113,6 +122,8 @@ struct form {
   };
 };
 
+struct vm;
+
 struct type {
   char name[MAX_NAME_LENGTH];
   
@@ -143,7 +154,6 @@ struct func {
   func_body_t body;
 };
 
-
 typedef enum emit_result (*macro_body_t)(struct macro *self, struct form *form, struct ls *in, struct vm *vm);
 
 struct macro {
@@ -151,6 +161,16 @@ struct macro {
   uint8_t nargs;
   macro_body_t body;
 };
+
+/*** Operations ***
+Operations are what the virtual machine evaluates, the end product of the translation, the most primitive kind of action.
+
+Each type of operation may specify it's own data-members by adding a struct and including it in struct op's union.
+
+The code is in eval(). 
+
+Please note that the order has to be consistent, and is thus kept alphabetical to simplify verification; the consequences of getting it wrong are potentially undefined. The reason is to support using computed goto in eval().
+***/
 
 struct op_branch {
   struct op *false_pc;
@@ -253,13 +273,6 @@ void func_dump(struct func *self, FILE *out);
 
 typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
-enum read_result read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-
 void ls_init(struct ls *self) { self->prev = self->next = self; }
 
 bool ls_null(const struct ls *self) { return self->prev == self && self->next == self; }
@@ -274,11 +287,6 @@ void ls_insert(struct ls *self, struct ls *it) {
 struct ls *ls_delete(struct ls *self) {
   self->prev->next = self->next;
   self->next->prev = self->prev;
-  return self;
-}
-
-struct val *val_init(struct val *self, struct type *type) {
-  self->type = type;
   return self;
 }
 
@@ -873,7 +881,13 @@ struct macro *macro_init(struct macro *self, const char *name, uint8_t nargs, ma
   self->body = body;
   return self;
 }
-  
+
+enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+
 enum read_result read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   static const int COUNT = 5;
   static const reader_t readers[COUNT] = {read_ws, read_int, read_semi, read_group, read_id};
