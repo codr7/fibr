@@ -29,9 +29,9 @@ const uint8_t MAX_STATE_COUNT = 64;
 typedef int32_t int_t;
 typedef uint16_t nrefs_t;
 
-enum emit_result {EMIT_OK, EMIT_ERROR}; 
-enum eval_result {EVAL_OK, EVAL_ERROR};
-enum read_result {READ_OK, READ_NULL, READ_ERROR};
+enum emit_res {EMIT_OK, EMIT_ERROR}; 
+enum eval_res {EVAL_OK, EVAL_ERROR};
+enum read_res {READ_OK, READ_NULL, READ_ERROR};
 
 #define BASEOF(p, t, m) ({			\
       uint8_t *_p = (uint8_t *)(p);		\
@@ -105,20 +105,20 @@ struct type {
   
   struct { 
     void (*dump)(struct val *val, FILE *out);
-    enum emit_result (*emit)(struct val *val, struct form *form, struct ls *in, struct vm *vm);
+    enum emit_res (*emit)(struct val *val, struct form *form, struct ls *in, struct vm *vm);
     bool (*equal)(struct val *x, struct val *y);
     bool (*is_true)(struct val *val);
-    struct val *(*literal)(struct val *val);
+    struct val *(*lit)(struct val *val);
   } methods;
 };
 
-enum emit_result default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm);
+enum emit_res default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm);
 
 bool default_true(struct val *val) {
   return true;
 }
 
-struct val *default_literal(struct val *val) {
+struct val *default_lit(struct val *val) {
   return val;
 }
 
@@ -129,7 +129,7 @@ struct type *type_init(struct type *self, const char *name) {
   self->methods.emit = default_emit;
   self->methods.equal = NULL;
   self->methods.is_true = default_true;
-  self->methods.literal = default_literal;
+  self->methods.lit = default_lit;
   return self;
 }
 
@@ -161,8 +161,8 @@ struct val *val_init(struct val *self, struct type *type) {
 }
 
 /*** Environments ***
-     Environments are ordered sets of identifiers bound to values.
-     Each compile time scope carries a separate environment.
+     Environments are ordered sets of mappings from identifiers to values.
+     Each scope gets its own compile time environment.
 ***/
 
 struct env_item {
@@ -391,11 +391,11 @@ struct form_id {
   char name[MAX_NAME_LENGTH];
 };
 
-struct form_literal {
+struct form_lit {
   struct val val;
 };
 
-enum form_type {FORM_GROUP, FORM_ID, FORM_LITERAL, FORM_SEMI};
+enum form_type {FORM_GROUP, FORM_ID, FORM_LIT, FORM_SEMI};
 
 struct form {
   struct ls ls;
@@ -406,22 +406,22 @@ struct form {
   union {
     struct form_group as_group;
     struct form_id as_id;
-    struct form_literal as_literal;
+    struct form_lit as_lit;
   };
 };
 
 struct op *emit(struct vm *vm, enum op_code code, struct form *form);
 
-enum emit_result default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_res default_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
   emit(vm, OP_PUSH, form)->as_push.val = *val;
   return EMIT_OK;
 }
 
 void error(struct vm *vm, struct pos pos, const char *fmt, ...);
 struct val *find(struct vm *vm, const char *name);
-enum emit_result val_emit(struct val *self, struct form *form, struct ls *in, struct vm *vm);
+enum emit_res val_emit(struct val *self, struct form *form, struct ls *in, struct vm *vm);
 
-enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
+enum emit_res form_emit(struct form *self, struct ls *in, struct vm *vm) {
   switch (self->type) {
   case FORM_GROUP: {
     struct ls *items = &self->as_group.items;
@@ -429,7 +429,7 @@ enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
     for (struct ls *it = items->next; it != items; it = items->next) {
       ls_delete(it);
       struct form *f = BASEOF(it, struct form, ls);
-      enum emit_result res = form_emit(f, items, vm);
+      enum emit_res res = form_emit(f, items, vm);
       if (res != EMIT_OK) { return res; }
     }
 
@@ -462,8 +462,8 @@ enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
     return val_emit(v, self, in, vm);
   }
     
-  case FORM_LITERAL:
-    emit(vm, OP_PUSH, self)->as_push.val = self->as_literal.val;
+  case FORM_LIT:
+    emit(vm, OP_PUSH, self)->as_push.val = self->as_lit.val;
     return EMIT_OK;
   case FORM_SEMI:
     error(vm, self->pos, "Semi emit");
@@ -473,10 +473,10 @@ enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
   return EMIT_ERROR;
 }
 
-enum emit_result emit_forms(struct vm *vm, struct ls *in) {
+enum emit_res emit_forms(struct vm *vm, struct ls *in) {
   while (!ls_null(in)) {
     struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
-    enum emit_result fr = form_emit(f, in, vm);
+    enum emit_res fr = form_emit(f, in, vm);
     if (fr != EMIT_OK) { return fr; }
   }
 
@@ -486,7 +486,7 @@ enum emit_result emit_forms(struct vm *vm, struct ls *in) {
 /*** Macros
  ***/
 
-typedef enum emit_result (*macro_body_t)(struct macro *self, struct form *form, struct ls *in, struct vm *vm);
+typedef enum emit_res (*macro_body_t)(struct macro *self, struct form *form, struct ls *in, struct vm *vm);
 
 struct macro {
   char name[MAX_NAME_LENGTH];
@@ -551,10 +551,10 @@ void func_dump(struct func *self, FILE *out) {
 
 struct op *pc(struct vm *vm);
 
-enum emit_result func_emit(struct func *self, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_res func_emit(struct func *self, struct form *form, struct ls *in, struct vm *vm) {
   struct op_jump *skip = &emit(vm, OP_JUMP, form)->as_jump;
   self->start_pc = pc(vm);
-  enum emit_result res = form_emit(form, in, vm);
+  enum emit_res res = form_emit(form, in, vm);
   if (res != EMIT_OK) { return res; }
   emit(vm, OP_RET, form)->as_ret.func = self;
   skip->pc = pc(vm);
@@ -620,10 +620,10 @@ void func_val_dump(struct val *val, FILE *out) {
   func_dump(val->as_func, out);
 }
 
-enum emit_result func_val_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_res func_val_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
   for (uint8_t i = 0; i < val->as_func->nargs; i++) {
     struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
-    enum emit_result res = form_emit(f, in, vm);
+    enum emit_res res = form_emit(f, in, vm);
     if (res != EMIT_OK) { return res; }
   }
        
@@ -631,7 +631,7 @@ enum emit_result func_val_emit(struct val *val, struct form *form, struct ls *in
   return EMIT_OK;
 }
 
-struct val *func_val_literal(struct val *val) {
+struct val *func_val_lit(struct val *val) {
   return NULL;
 }
 
@@ -681,7 +681,7 @@ struct vm *vm_init(struct vm *self) {
   type_init(&self->func_type, "Func");
   self->func_type.methods.dump = func_val_dump;
   self->func_type.methods.emit = func_val_emit;
-  self->func_type.methods.literal = func_val_literal;
+  self->func_type.methods.lit = func_val_lit;
   bind_init(self, "Func", &self->meta_type)->as_meta = &self->func_type;
 
   type_init(&self->int_type, "Int");
@@ -693,14 +693,14 @@ struct vm *vm_init(struct vm *self) {
   return self;
 }
 
-typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+typedef enum read_res(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
 void val_dump(struct val *self, FILE *out) {
   assert(self->type->methods.dump);
   self->type->methods.dump(self, out);
 }
 
-enum emit_result val_emit(struct val *self, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_res val_emit(struct val *self, struct form *form, struct ls *in, struct vm *vm) {
   assert(self->type->methods.emit);
   return self->type->methods.emit(self, form, in, vm);
 }
@@ -715,9 +715,9 @@ bool val_true(struct val *self) {
   return self->type->methods.is_true(self);
 }
 
-struct val *val_literal(struct val *self) {
-  assert(self->type->methods.literal);
-  return self->type->methods.literal(self);
+struct val *val_lit(struct val *self) {
+  assert(self->type->methods.lit);
+  return self->type->methods.lit(self);
 }
 
 struct form *form_init(struct form *self, enum form_type type, struct pos pos, struct ls *out) {
@@ -730,8 +730,8 @@ struct form *form_init(struct form *self, enum form_type type, struct pos pos, s
   case FORM_GROUP:
     ls_init(&self->as_group.items);
     break;
-  case FORM_LITERAL:
-    self->as_literal.val.type = NULL;
+  case FORM_LIT:
+    self->as_lit.val.type = NULL;
     break;
   case FORM_ID:
   case FORM_SEMI:
@@ -762,11 +762,11 @@ struct val *form_val(struct form *self, struct vm *vm) {
   case FORM_ID: {
     struct val *v = find(vm, self->as_id.name);
     if (!v) { break; }
-    return val_literal(v);
+    return val_lit(v);
   }
     
-  case FORM_LITERAL:
-    return &self->as_literal.val;
+  case FORM_LIT:
+    return &self->as_lit.val;
 
   case FORM_GROUP:
   case FORM_SEMI:
@@ -919,7 +919,7 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   if (vm->debug) { op_dump(next_op, stdout); fputc('\n', stdout); }	\
   goto *dispatch[(op = next_op)->code]
   
-enum eval_result eval(struct vm *vm, struct op *start_pc) {
+enum eval_res eval(struct vm *vm, struct op *start_pc) {
   static const void* dispatch[] = {
     &&BRANCH, &&CALL, &&DROP, &&EQUAL, &&JUMP, &&LOAD, &&NOP, &&PUSH, &&RET, &&STORE,
     //---STOP---
@@ -999,13 +999,13 @@ enum eval_result eval(struct vm *vm, struct op *start_pc) {
      New readers must be added in the right order to read_form().
 ***/
 
-enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
-enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_res read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_res read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_res read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_res read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
+enum read_res read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
-enum read_result read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+enum read_res read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   static const int COUNT = 5;
   static const reader_t readers[COUNT] = {read_ws, read_int, read_semi, read_group, read_id};
 
@@ -1023,7 +1023,7 @@ enum read_result read_form(struct vm *vm, struct pos *pos, FILE *in, struct ls *
   return READ_NULL;
 }
 
-enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+enum read_res read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   struct pos fpos = *pos;  
   char c = fgetc(in);
   
@@ -1044,7 +1044,7 @@ enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls 
 
     ungetc(c, in);
 
-    enum read_result res = read_form(vm, pos, in, &f->as_group.items);
+    enum read_res res = read_form(vm, pos, in, &f->as_group.items);
 
     switch (res) {
     case READ_NULL:
@@ -1066,7 +1066,7 @@ enum read_result read_group(struct vm *vm, struct pos *pos, FILE *in, struct ls 
   return READ_OK;
 }
 
-enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+enum read_res read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   struct pos fpos = *pos;
   char name[MAX_NAME_LENGTH], *p = name, c = 0;
   
@@ -1090,7 +1090,7 @@ enum read_result read_id(struct vm *vm, struct pos *pos, FILE *in, struct ls *ou
   return READ_OK;
 }
 
-enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+enum read_res read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   int_t v = 0;
   bool neg = false;
   struct pos fpos = *pos;
@@ -1126,12 +1126,12 @@ enum read_result read_int(struct vm *vm, struct pos *pos, FILE *in, struct ls *o
   }
 
   if (pos->column == fpos.column) { return READ_NULL; }
-  struct form *f = new_form(FORM_LITERAL, fpos, out);
-  val_init(&f->as_literal.val, &vm->int_type)->as_int = neg ? -v : v;
+  struct form *f = new_form(FORM_LIT, fpos, out);
+  val_init(&f->as_lit.val, &vm->int_type)->as_int = neg ? -v : v;
   return READ_OK;
 }
 
-enum read_result read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+enum read_res read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   struct pos fpos = *pos;
   char c = 0;
   
@@ -1147,7 +1147,7 @@ enum read_result read_semi(struct vm *vm, struct pos *pos, FILE *in, struct ls *
   return READ_OK;
 }
     
-enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
+enum read_res read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *out) {
   char c = 0;
 
   while ((c = fgetc(in))) {
@@ -1173,7 +1173,7 @@ void macro_dump(struct val *val, FILE *out) {
   fprintf(out, "Macro(%s)", val->as_macro->name);
 }
 
-enum emit_result macro_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_res macro_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
   struct macro *self = val->as_macro;
   struct ls *a = in->next;
 
@@ -1187,7 +1187,7 @@ enum emit_result macro_emit(struct val *val, struct form *form, struct ls *in, s
   return self->body(self, form, in, vm);
 }
 
-struct val *macro_literal(struct val *val) {
+struct val *macro_lit(struct val *val) {
   return NULL;
 }
 
@@ -1204,7 +1204,7 @@ struct op *debug_body(struct func *self, struct op *ret_pc, struct vm *vm) {
   return ret_pc;
 }
 
-enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_res equal_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   struct op_equal *op = &emit(vm, OP_EQUAL, form)->as_equal;
 
   struct form *x = BASEOF(ls_delete(in->next), struct form, ls);
@@ -1213,7 +1213,7 @@ enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in
   if (xv) {
     op->x = *xv;
   } else {
-    enum emit_result fr = form_emit(x, in, vm);
+    enum emit_res fr = form_emit(x, in, vm);
     if (fr != EMIT_OK) { return fr; }
   }
 
@@ -1223,7 +1223,7 @@ enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in
   if (yv) {
     op->y = *yv;
   } else {
-    enum emit_result fr = form_emit(y, in, vm);
+    enum emit_res fr = form_emit(y, in, vm);
     if (fr != EMIT_OK) { return fr; }
   }
 
@@ -1235,7 +1235,7 @@ struct op *__func_body(struct func *self, struct op *ret_pc, struct vm *vm) {
   return self->start_pc;
 }
 
-enum emit_result func_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_res func_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   struct form *name_form = BASEOF(ls_delete(in->next), struct form, ls);
   const char *name = name_form->as_id.name;
   
@@ -1249,7 +1249,7 @@ enum emit_result func_body(struct macro *self, struct form *form, struct ls *in,
 
   struct func *func = func_init(malloc(sizeof(struct func)), name, nargs, args, nrets, rets, __func_body);
   struct form *body = BASEOF(ls_delete(in->next), struct form, ls);
-  enum emit_result res = func_emit(func, body, in, vm);
+  enum emit_res res = func_emit(func, body, in, vm);
   if (res != EMIT_OK) { return res; }
   
   if (strcmp(name, "_") == 0) {
@@ -1261,9 +1261,9 @@ enum emit_result func_body(struct macro *self, struct form *form, struct ls *in,
   return EMIT_OK;
 }
 
-enum emit_result if_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_res if_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   struct form *cf = BASEOF(ls_delete(in->next), struct form, ls);
-  enum emit_result fr = form_emit(cf, in, vm);
+  enum emit_res fr = form_emit(cf, in, vm);
   if (fr != EMIT_OK) { return fr; }
   struct op_branch *b = &emit(vm, OP_BRANCH, form)->as_branch;
 
@@ -1281,7 +1281,7 @@ enum emit_result if_body(struct macro *self, struct form *form, struct ls *in, s
   return EMIT_OK;
 }
 
-enum emit_result nop_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+enum emit_res nop_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   return EMIT_OK;
 }
 
@@ -1303,7 +1303,7 @@ int main () {
   type_init(&macro_type, "Macro");
   macro_type.methods.dump = macro_dump;
   macro_type.methods.emit = macro_emit;
-  macro_type.methods.literal = macro_literal;
+  macro_type.methods.lit = macro_lit;
   bind_init(&vm, "Macro", &vm.meta_type)->as_meta = &macro_type;
   
   struct func add_func;
