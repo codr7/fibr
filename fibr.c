@@ -1134,7 +1134,8 @@ int main () {
   struct func add_func;
   func_init(&add_func, "+",
 	    2, (struct func_arg[]){arg("x", &vm.int_type), arg("y", &vm.int_type)},
-	    1, (struct type *[]){&vm.int_type}, add_body);
+	    1, (struct type *[]){&vm.int_type},
+	    add_body);
   bind_init(&vm, "+", &func_type)->as_func = &add_func;
 
   struct func debug_func;
@@ -1159,7 +1160,8 @@ int main () {
   struct func sub_func;
   func_init(&sub_func, "-",
 	    2, (struct func_arg[]){arg("x", &vm.int_type), arg("y", &vm.int_type)},
-	    1, (struct type *[]){&vm.int_type}, sub_body);
+	    1, (struct type *[]){&vm.int_type},
+	    sub_body);
   bind_init(&vm, "-", &func_type)->as_func = &sub_func;
 
   struct pos pos;
