@@ -1,7 +1,7 @@
-* finish func
-** add func macro
-*** add func_emit
-**** push frame in body
+* add func macro
+** add func_emit
+*** push frame in body
+** push lambda if name missing
 * finish read_group
 * fibrec
 * fibtail
@@ -14,3 +14,10 @@
 ** add alloc/free_form(vm,)
 * add test op
 * add func decls to header
+
+func fibrec (n Int) (Int)
+  if < n 2 n + fibrec - n 1 fibrec - n 2
+
+func fibtail (n Int a Int b Int) (Int)
+  if = n 0 a if = n 1 b fibtail - n 1 b + a b
+  
