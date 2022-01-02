@@ -189,7 +189,7 @@ struct op_store {
 };
 
 enum op_code {
-  OP_BRANCH, OP_CALL, OP_DROP, OP_EQUAL, OP_JUMP, OP_LOAD, OP_PUSH, OP_RET, OP_STORE,
+  OP_BRANCH, OP_CALL, OP_DROP, OP_EQUAL, OP_JUMP, OP_LOAD, OP_NOP, OP_PUSH, OP_RET, OP_STORE,
   //---STOP---
   OP_STOP};
 
@@ -441,6 +441,8 @@ struct op *op_init(struct op *self, enum op_code code, struct form *form) {
   case OP_LOAD:
     self->as_load.reg = -1;
     break;
+  case OP_NOP:
+    break;
   case OP_RET:
     self->as_ret.func = NULL;
     break;
@@ -478,6 +480,9 @@ void op_dump(struct op *self, FILE *out) {
     break;
   case OP_LOAD:
     fprintf(out, "LOAD %" PRId16, self->as_load.reg);
+    break;
+  case OP_NOP:
+    fputs("NOP", out);
     break;
   case OP_PUSH:
     fputs("PUSH ", out);
@@ -708,7 +713,7 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   
 enum eval_result eval(struct vm *vm, struct op *start_pc) {
   static const void* dispatch[] = {
-    &&BRANCH, &&CALL, &&DROP, &&EQUAL, &&JUMP, &&LOAD, &&PUSH, &&RET, &&STORE,
+    &&BRANCH, &&CALL, &&DROP, &&EQUAL, &&JUMP, &&LOAD, &&NOP, &&PUSH, &&RET, &&STORE,
     //---STOP---
     &&STOP};
 
@@ -754,6 +759,11 @@ enum eval_result eval(struct vm *vm, struct op *start_pc) {
  LOAD: {
     *reg(vm, op->as_load.reg) = *pop(vm);
     DISPATCH(op+1);
+  }
+
+ NOP: {
+    while ((op+1)->code == OP_NOP) { op++; }
+    DISPATCH(op);
   }
   
  PUSH: {
