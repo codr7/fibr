@@ -174,6 +174,9 @@ struct op *op_init(struct op *self, enum op_code code, struct form *form) {
   case OP_BRANCH:
     self->as_branch.false_pc = NULL;
     break;
+  case OP_CALL:
+    self->as_call.func = NULL;
+    break;
   case OP_DROP:
     self->as_drop.count = 1;
     break;
@@ -204,6 +207,10 @@ void op_dump(struct op *self, FILE *out) {
   case OP_BRANCH:
     fprintf(out, "BRANCH ");
     op_dump(self->as_branch.false_pc, out);
+    break;
+  case OP_CALL:
+    fprintf(out, "CALL ");
+    func_dump(self->as_call.func, out);
     break;
   case OP_DROP:
     fprintf(out, "DROP %" PRIu8, self->as_drop.count);
@@ -387,11 +394,6 @@ struct op *pc(struct vm *vm) {
   return vm->ops + vm->op_count;
 }
 
-struct op *peek_op(struct vm *vm) {
-  assert(vm->op_count < MAX_OP_COUNT);
-  return vm->ops+vm->op_count;
-}
-
 struct val *reg(struct vm *vm, reg_t reg) {
   assert(reg < MAX_REG_COUNT);
   return peek_state(vm)->regs+reg;
@@ -441,12 +443,13 @@ struct scope *scope_init(struct scope *self, struct vm *vm) {
   if (vm->debug) { op_dump(next_op, stdout); fputc('\n', stdout); }	\
   goto *dispatch[(op = next_op)->code]
   
-enum eval_result eval(struct vm *vm, struct op *op) {
+enum eval_result eval(struct vm *vm, struct op *start_pc) {
   static const void* dispatch[] = {
-    &&BRANCH, &&DROP, &&EQUAL, &&JUMP, &&LOAD, &&PUSH, &&STORE,
+    &&BRANCH, &&CALL, &&DROP, &&EQUAL, &&JUMP, &&LOAD, &&PUSH, &&STORE,
     //---STOP---
     &&STOP};
-  
+
+  struct op *op = start_pc;
   DISPATCH(op);
 
  BRANCH: {
@@ -454,6 +457,11 @@ enum eval_result eval(struct vm *vm, struct op *op) {
     DISPATCH(val_true(pop(vm)) ? op+1 : branch->false_pc);
   }
 
+ CALL: {
+    struct op_call *call = &op->as_call;
+    DISPATCH(call->func->body(call->func, op+1, vm));
+  }
+  
  DROP: {
     struct op_drop *drop = &op->as_drop;
     struct state *state = peek_state(vm);
@@ -554,17 +562,30 @@ enum emit_result emit_forms(struct vm *vm, struct ls *in) {
   return EMIT_OK;
 }
 
+struct func_arg arg(const char *name, struct type *type) {
+  struct func_arg arg;
+  strcpy(arg.name, name);
+  arg.type = type;
+  return arg;
+}
+  
 struct func *func_init(struct func *self,
 		       const char *name,
 		       uint8_t nargs, struct func_arg args[],
-		       uint8_t nrets, struct type *rets[]) {
+		       uint8_t nrets, struct type *rets[],
+		       func_body_t body) {
   assert(strlen(name) < MAX_NAME_LENGTH);
   strcpy(self->name, name);
   self->nargs = nargs;
   memcpy(self->args, args, nargs*sizeof(struct func_arg));
   self->nrets = nrets;
   memcpy(self->rets, rets, nrets*sizeof(struct type *));
+  self->body = body;
   return self;
+}
+
+void func_dump(struct func *self, FILE *out) {
+  fputs(self->name, out);
 }
 
 struct macro *macro_init(struct macro *self, const char *name, uint8_t nargs, macro_body_t body) {
@@ -700,6 +721,15 @@ enum read_result read_ws(struct vm *vm, struct pos *pos, FILE *in, struct ls *ou
   return READ_NULL;
 }
 
+void func_val_dump(struct val *val, FILE *out) {
+  func_dump(val->as_func, out);
+}
+
+enum emit_result func_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
+  emit(vm, OP_CALL, form)->as_call.func = val->as_func;
+  return EMIT_OK;
+}
+
 void macro_dump(struct val *val, FILE *out) {
   fprintf(out, "Macro(%s)", val->as_macro->name);
 }
@@ -722,10 +752,11 @@ struct val *macro_literal(struct val *val) {
   return NULL;
 }
 
-enum emit_result debug_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
+struct op *debug_body(struct func *self, struct op *ret_pc, struct vm *vm) {
+  printf("DEBUG: %d\n", vm->debug);
   vm->debug = !vm->debug;
-  printf("%s\n", vm->debug ? "T" : "F");
-  return EMIT_OK;
+  push_init(vm, &vm->bool_type)->as_bool = vm->debug;
+  return ret_pc;
 }
 
 enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
@@ -781,6 +812,11 @@ int main () {
   vm_init(&vm);
   push_state(&vm);
 
+  struct type func_type;
+  type_init(&func_type, "Func");
+  func_type.methods.dump = func_val_dump;
+  func_type.methods.emit = func_emit;
+  bind_init(&vm, "Func", &vm.meta_type)->as_meta = &func_type;
 
   struct type macro_type;
   type_init(&macro_type, "Macro");
@@ -789,9 +825,9 @@ int main () {
   macro_type.methods.literal = macro_literal;
   bind_init(&vm, "Macro", &vm.meta_type)->as_meta = &macro_type;
   
-  struct macro debug_macro;
-  macro_init(&debug_macro, "debug", 0, debug_body);
-  bind_init(&vm, "debug", &macro_type)->as_macro = &debug_macro;
+  struct func debug_func;
+  func_init(&debug_func, "debug", 0, (struct func_arg[]){}, 1, (struct type *[]){}, debug_body);
+  bind_init(&vm, "debug", &func_type)->as_func = &debug_func;
 
   struct macro equal_macro;
   macro_init(&equal_macro, "=", 2, equal_body);
@@ -817,7 +853,7 @@ int main () {
       }
     }
     
-    struct op *start = peek_op(&vm);
+    struct op *start_pc = pc(&vm);
 
     if (emit_forms(&vm, &forms) != EMIT_OK) {
       printf("%s\n", vm.error);
@@ -826,7 +862,7 @@ int main () {
   
     emit(&vm, OP_STOP, NULL);
     
-    if (eval(&vm, start) != EVAL_OK) {
+    if (eval(&vm, start_pc) != EVAL_OK) {
       printf("%s\n", vm.error);
       continue;
     }

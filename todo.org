@@ -1,11 +1,14 @@
 * finish func
-** add CALL op
-** add func_emit
-** convert debug
-*** push T/F instead of printing
+** add func macro
+*** add func_emit
 * finish read_group
 * fibrec
 * fibtail
+* add bool func_applicable(func, vm)
+** add call flags enum
+*** CHECK/TAIL/DROP
+*** add flags field to op_call struct
+*** pass flags to func body
 * track forms in vm pool
 ** add alloc/free_form(vm,)
 * add test op

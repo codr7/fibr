@@ -55,6 +55,7 @@ struct pos {
   uint16_t line, column;
 };
 
+struct func;
 struct macro;
 struct type;
 struct vm;
@@ -64,6 +65,7 @@ struct val {
 
   union {
     bool as_bool;
+    struct func *as_func;
     int_t as_int;
     struct macro *as_macro;
     struct type *as_meta;
@@ -117,7 +119,7 @@ struct type {
 
 struct func;
 
-typedef enum eval_result (*func_body_t)(struct func *self, struct vm *vm);
+typedef struct op *(*func_body_t)(struct func *self, struct op *ret_pc, struct vm *vm);
 
 struct func_arg {
   char name[MAX_NAME_LENGTH];
@@ -146,6 +148,10 @@ struct op_branch {
   struct op *false_pc;
 };
 
+struct op_call {
+  struct func *func;
+};
+
 struct op_drop {
   uint8_t count;
 };
@@ -171,7 +177,7 @@ struct op_store {
 };
 
 enum op_code {
-  OP_BRANCH, OP_DROP, OP_EQUAL, OP_JUMP, OP_LOAD, OP_PUSH, OP_STORE,
+  OP_BRANCH, OP_CALL, OP_DROP, OP_EQUAL, OP_JUMP, OP_LOAD, OP_PUSH, OP_STORE,
   //---STOP---
   OP_STOP};
 
@@ -181,6 +187,7 @@ struct op {
   
   union {
     struct op_branch as_branch;
+    struct op_call as_call;
     struct op_drop as_drop;
     struct op_equal as_equal;
     struct op_jump as_jump;
@@ -228,6 +235,8 @@ struct vm {
 
 struct val *bind_init(struct vm *vm, const char *name, struct type *type);
 struct scope *push_scope(struct vm *vm);
+
+void func_dump(struct func *self, FILE *out);
 
 typedef enum read_result(*reader_t)(struct vm *vm, struct pos *pos, FILE *in, struct ls *out);
 
