@@ -1014,6 +1014,10 @@ enum emit_result func_emit(struct val *val, struct form *form, struct ls *in, st
   return EMIT_OK;
 }
 
+struct val *func_literal(struct val *val) {
+  return NULL;
+}
+
 void macro_dump(struct val *val, FILE *out) {
   fprintf(out, "Macro(%s)", val->as_macro->name);
 }
@@ -1113,6 +1117,7 @@ int main () {
   type_init(&func_type, "Func");
   func_type.methods.dump = func_val_dump;
   func_type.methods.emit = func_emit;
+  func_type.methods.literal = func_literal;
   bind_init(&vm, "Func", &vm.meta_type)->as_meta = &func_type;
 
   struct type macro_type;
