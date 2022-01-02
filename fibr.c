@@ -46,18 +46,22 @@ struct ls {
   struct ls *prev, *next;
 };
 
-void ls_init(struct ls *self) { self->prev = self->next = self; }
+void ls_init(struct ls *self) {
+  self->prev = self->next = self;
+}
 
-bool ls_null(const struct ls *self) { return self->prev == self && self->next == self; }
+bool ls_null(const struct ls *self) {
+  return self->prev == self && self->next == self;
+}
 
-void ls_insert(struct ls *self, struct ls *it) {
+void ls_ins(struct ls *self, struct ls *it) {
   it->prev = self->prev;
   self->prev->next = it;
   it->next = self;
   self->prev = it;
 }
 
-struct ls *ls_delete(struct ls *self) {
+struct ls *ls_del(struct ls *self) {
   self->prev->next = self->next;
   self->next->prev = self->prev;
   return self;
@@ -208,7 +212,7 @@ struct val *env_set(struct env *self, const char *name) {
   struct env_item *it = self->items + self->item_count++;
   assert(it < self->items+MAX_ENV_SIZE);
   strcpy(it->name, name);
-  ls_insert(found, &it->order);
+  ls_ins(found, &it->order);
   return &it->val;
 }
 
@@ -412,7 +416,7 @@ struct form {
 struct form *form_init(struct form *self, enum form_type type, struct pos pos, struct ls *out) {
   self->type = type;
   self->pos = pos;
-  if (out) { ls_insert(out, &self->ls); }
+  if (out) { ls_ins(out, &self->ls); }
 
   switch (type) {
   case FORM_GROUP:
@@ -471,7 +475,7 @@ enum emit_res form_emit(struct form *self, struct ls *in, struct vm *vm) {
     struct ls *items = &self->as_group.items;
     
     for (struct ls *it = items->next; it != items; it = items->next) {
-      ls_delete(it);
+      ls_del(it);
       struct form *f = BASEOF(it, struct form, ls);
       enum emit_res res = form_emit(f, items, vm);
       if (res != EMIT_OK) { return res; }
@@ -519,7 +523,7 @@ enum emit_res form_emit(struct form *self, struct ls *in, struct vm *vm) {
 
 enum emit_res emit_forms(struct vm *vm, struct ls *in) {
   while (!ls_null(in)) {
-    struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
+    struct form *f = BASEOF(ls_del(in->next), struct form, ls);
     enum emit_res fr = form_emit(f, in, vm);
     if (fr != EMIT_OK) { return fr; }
   }
@@ -666,7 +670,7 @@ void func_val_dump(struct val *val, FILE *out) {
 
 enum emit_res func_val_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
   for (uint8_t i = 0; i < val->as_func->nargs; i++) {
-    struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
+    struct form *f = BASEOF(ls_del(in->next), struct form, ls);
     enum emit_res res = form_emit(f, in, vm);
     if (res != EMIT_OK) { return res; }
   }
@@ -1195,7 +1199,7 @@ struct op *debug_body(struct func *self, struct op *ret_pc, struct vm *vm) {
 enum emit_res equal_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   struct op_equal *op = &emit(vm, OP_EQUAL, form)->as_equal;
 
-  struct form *x = BASEOF(ls_delete(in->next), struct form, ls);
+  struct form *x = BASEOF(ls_del(in->next), struct form, ls);
   struct val *xv = form_val(x, vm);
   
   if (xv) {
@@ -1205,7 +1209,7 @@ enum emit_res equal_body(struct macro *self, struct form *form, struct ls *in, s
     if (fr != EMIT_OK) { return fr; }
   }
 
-  struct form *y = BASEOF(ls_delete(in->next), struct form, ls);
+  struct form *y = BASEOF(ls_del(in->next), struct form, ls);
   struct val *yv = form_val(y, vm);
 
   if (yv) {
@@ -1224,19 +1228,19 @@ struct op *__func_body(struct func *self, struct op *ret_pc, struct vm *vm) {
 }
 
 enum emit_res func_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
-  struct form *name_form = BASEOF(ls_delete(in->next), struct form, ls);
+  struct form *name_form = BASEOF(ls_del(in->next), struct form, ls);
   const char *name = name_form->as_id.name;
   
-  struct form *args_form = BASEOF(ls_delete(in->next), struct form, ls);
+  struct form *args_form = BASEOF(ls_del(in->next), struct form, ls);
   struct func_arg args[MAX_FUNC_ARG_COUNT];
   uint8_t nargs = 0;
   
-  struct form *rets_form = BASEOF(ls_delete(in->next), struct form, ls);
+  struct form *rets_form = BASEOF(ls_del(in->next), struct form, ls);
   struct type *rets[MAX_FUNC_RET_COUNT];
   uint8_t nrets = 0;
 
   struct func *func = func_init(malloc(sizeof(struct func)), name, nargs, args, nrets, rets, __func_body);
-  struct form *body = BASEOF(ls_delete(in->next), struct form, ls);
+  struct form *body = BASEOF(ls_del(in->next), struct form, ls);
   enum emit_res res = func_emit(func, body, in, vm);
   if (res != EMIT_OK) { return res; }
   
@@ -1250,18 +1254,18 @@ enum emit_res func_body(struct macro *self, struct form *form, struct ls *in, st
 }
 
 enum emit_res if_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
-  struct form *cf = BASEOF(ls_delete(in->next), struct form, ls);
+  struct form *cf = BASEOF(ls_del(in->next), struct form, ls);
   enum emit_res fr = form_emit(cf, in, vm);
   if (fr != EMIT_OK) { return fr; }
   struct op_branch *b = &emit(vm, OP_BRANCH, form)->as_branch;
 
-  struct form *tf = BASEOF(ls_delete(in->next), struct form, ls);
+  struct form *tf = BASEOF(ls_del(in->next), struct form, ls);
   fr = form_emit(tf, in, vm);
   if (fr != EMIT_OK) { return fr; }
 
   struct op_jump *j = &emit(vm, OP_JUMP, form)->as_jump;
   b->false_pc = pc(vm);
-  struct form *ff = BASEOF(ls_delete(in->next), struct form, ls);
+  struct form *ff = BASEOF(ls_del(in->next), struct form, ls);
   fr = form_emit(ff, in, vm);
   if (fr != EMIT_OK) { return fr; }
   j->pc = pc(vm);
@@ -1342,7 +1346,7 @@ int main () {
       struct form *f = BASEOF(forms.prev, struct form, ls);
 
       if (f->type == FORM_SEMI) {
-	ls_delete(forms.prev);
+	ls_del(forms.prev);
 	break;
       }
     }
