@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define baseof(p, t, m) ({			\
+#define BASEOF(p, t, m) ({			\
       uint8_t *_p = (uint8_t *)(p);		\
       _p ? ((t *)(_p - offsetof(t, m))) : NULL;	\
     })
@@ -22,6 +22,14 @@
 
 #define UNIQUE(x)				\
   CONCAT(x, __COUNTER__)
+
+#define _LS_DO(ls, i, _next)				\
+  for (struct ls *i = (ls)->next, *_next = i->next;	\
+       i != (ls);					\
+       i = _next, _next = i->next)
+
+#define LS_DO(ls, i)				\
+  _LS_DO(ls, i, UNIQUE(next))
 
 typedef int32_t int_t;
 typedef uint16_t nrefs_t;
@@ -41,14 +49,6 @@ const reg_t MAX_REG_COUNT = 64;
 const uint8_t MAX_SCOPE_COUNT = 8;
 const uint8_t MAX_STACK_SIZE = 64;
 const uint8_t MAX_STATE_COUNT = 64;
-
-#define _ls_do(ls, i, _next)				\
-  for (struct ls *i = (ls)->next, *_next = i->next;	\
-       i != (ls);					\
-       i = _next, _next = i->next)
-
-#define ls_do(ls, i)				\
-  _ls_do(ls, i, UNIQUE(next))
 
 struct ls {
   struct ls *prev, *next;
@@ -832,7 +832,7 @@ enum emit_result form_emit(struct form *self, struct ls *in, struct vm *vm) {
 
 enum emit_result emit_forms(struct vm *vm, struct ls *in) {
   while (!ls_null(in)) {
-    struct form *f = baseof(ls_delete(in->next), struct form, ls);
+    struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
     enum emit_result fr = form_emit(f, in, vm);
     if (fr != EMIT_OK) { return fr; }
   }
@@ -1005,7 +1005,7 @@ void func_val_dump(struct val *val, FILE *out) {
 
 enum emit_result func_emit(struct val *val, struct form *form, struct ls *in, struct vm *vm) {
   for (uint8_t i = 0; i < val->as_func->nargs; i++) {
-    struct form *f = baseof(ls_delete(in->next), struct form, ls);
+    struct form *f = BASEOF(ls_delete(in->next), struct form, ls);
     enum emit_result res = form_emit(f, in, vm);
     if (res != EMIT_OK) { return res; }
   }
@@ -1052,7 +1052,7 @@ struct op *debug_body(struct func *self, struct op *ret_pc, struct vm *vm) {
 enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
   struct op_equal *op = &emit(vm, OP_EQUAL, form)->as_equal;
 
-  struct form *x = baseof(ls_delete(in->next), struct form, ls);
+  struct form *x = BASEOF(ls_delete(in->next), struct form, ls);
   struct val *xv = form_val(x, vm);
   
   if (xv) {
@@ -1062,7 +1062,7 @@ enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in
     if (fr != EMIT_OK) { return fr; }
   }
 
-  struct form *y = baseof(ls_delete(in->next), struct form, ls);
+  struct form *y = BASEOF(ls_delete(in->next), struct form, ls);
   struct val *yv = form_val(y, vm);
 
   if (yv) {
@@ -1076,18 +1076,18 @@ enum emit_result equal_body(struct macro *self, struct form *form, struct ls *in
 }
 
 enum emit_result if_body(struct macro *self, struct form *form, struct ls *in, struct vm *vm) {
-  struct form *cf = baseof(ls_delete(in->next), struct form, ls);
+  struct form *cf = BASEOF(ls_delete(in->next), struct form, ls);
   enum emit_result fr = form_emit(cf, in, vm);
   if (fr != EMIT_OK) { return fr; }
   struct op_branch *b = &emit(vm, OP_BRANCH, form)->as_branch;
 
-  struct form *tf = baseof(ls_delete(in->next), struct form, ls);
+  struct form *tf = BASEOF(ls_delete(in->next), struct form, ls);
   fr = form_emit(tf, in, vm);
   if (fr != EMIT_OK) { return fr; }
 
   struct op_jump *j = &emit(vm, OP_JUMP, form)->as_jump;
   b->false_pc = pc(vm);
-  struct form *ff = baseof(ls_delete(in->next), struct form, ls);
+  struct form *ff = BASEOF(ls_delete(in->next), struct form, ls);
   fr = form_emit(ff, in, vm);
   if (fr != EMIT_OK) { return fr; }
   j->pc = pc(vm);
@@ -1157,7 +1157,7 @@ int main () {
     ls_init(&forms);
 
     while (read_form(&vm, &pos, stdin, &forms) == READ_OK) {
-      struct form *f = baseof(forms.prev, struct form, ls);
+      struct form *f = BASEOF(forms.prev, struct form, ls);
 
       if (f->type == FORM_SEMI) {
 	ls_delete(forms.prev);
