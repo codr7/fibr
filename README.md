@@ -11,7 +11,7 @@ $ git clone https://github.com/codr7/fibr.git
 $ cd fibr
 $ make
 $ rlwrap ./fibr
-fibr 4
+fibr 6
 
 + 35 7;
 [42]

@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-const uint8_t VERSION = 5;
+const uint8_t VERSION = 6;
 
 typedef int16_t reg_t;
 
